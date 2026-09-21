@@ -1,4 +1,6 @@
 import '../styles/menu.css';
+import type { ModernRenderSettings, RenderSettingsStore } from '../../renderer/RenderSettings';
+import { SETTING_ROWS, type SettingRow } from './SettingsRows';
 
 /**
  * Menu principal.
@@ -27,6 +29,8 @@ interface MenuPage {
   title?: string;
   /** Contenu libre place avant les entrees, par exemple la carte a jouer. */
   header?: string;
+  /** Page de reglages : ses lignes viennent de la table, pas des entrees. */
+  settings?: boolean;
   entries: MenuEntry[];
 }
 
@@ -52,6 +56,12 @@ const PAGES: MenuPage[] = [
     ],
   },
   {
+    id: 'settings',
+    title: 'Settings',
+    settings: true,
+    entries: [{ id: 'back', label: 'Back', minor: true }],
+  },
+  {
     id: 'credits',
     title: 'Credits',
     header: 'credits',
@@ -67,6 +77,8 @@ export class MainMenu {
   private readonly notes: HTMLElement;
   private readonly sources: HTMLElement;
   private readonly pages = new Map<string, { element: HTMLElement; items: HTMLButtonElement[] }>();
+  /** Lignes de reglage, pour les relire quand une valeur change. */
+  private readonly rows = new Map<HTMLButtonElement, SettingRow>();
   private page = 'main';
   private index = 0;
   private visible = false;
@@ -74,8 +86,12 @@ export class MainMenu {
   /** Entree validee : son identifiant, page comprise. */
   onSelect: ((page: string, entry: string) => void) | null = null;
   onSource: ((name: string) => void) | null = null;
+  /** Prevenu quand un reglage change demande de reprendre la carte. */
+  onReload: (() => void) | null = null;
+  /** Prevenu quand les reglages ouverts en partie sont refermes. */
+  onClose: (() => void) | null = null;
 
-  constructor(parent: HTMLElement, build: string) {
+  constructor(parent: HTMLElement, build: string, private readonly store?: RenderSettingsStore) {
     this.root = document.createElement('div');
     this.root.className = 'menu';
     this.root.innerHTML = `
@@ -130,8 +146,23 @@ export class MainMenu {
 
   show(): void {
     this.visible = true;
+    this.root.classList.remove('menu--overlay');
     this.root.classList.add('menu--visible');
     this.showPage('main');
+  }
+
+  /**
+   * Ouvre les reglages par-dessus la partie : ni titre ni symbole, et un
+   * assombrissement leger, pour qu'on voie encore ou l'on se trouve.
+   */
+  openSettings(): void {
+    this.visible = true;
+    this.root.classList.add('menu--visible', 'menu--overlay');
+    this.showPage('settings');
+  }
+
+  get inOverlay(): boolean {
+    return this.root.classList.contains('menu--overlay');
   }
 
   hide(): void {
@@ -217,6 +248,12 @@ export class MainMenu {
     }
 
     const items: HTMLButtonElement[] = [];
+    if (page.settings) {
+      const list = document.createElement('div');
+      list.className = 'menu-settings';
+      element.appendChild(list);
+      for (const row of SETTING_ROWS) items.push(this.buildSettingRow(row, list));
+    }
     for (const entry of page.entries) {
       const item = document.createElement('button');
       item.className = entry.minor ? 'menu-item menu-item--minor' : 'menu-item';
@@ -238,6 +275,62 @@ export class MainMenu {
     return { element, items };
   }
 
+  /**
+   * Une ligne de reglage : le nom a gauche, la valeur a droite. Elle se change
+   * a gauche et a droite, ou en la validant, comme au menu d'origine.
+   */
+  private buildSettingRow(row: SettingRow, host: HTMLElement): HTMLButtonElement {
+    const line = document.createElement('button');
+    line.className = 'menu-item menu-setting';
+    line.dataset.entry = `set:${row.id}`;
+    line.innerHTML = `
+      <span class="menu-setting__label">${row.label}</span>
+      <span class="menu-setting__bar"><span></span></span>
+      <span class="menu-setting__value"></span>
+    `;
+    line.addEventListener('mouseenter', () => {
+      const page = this.pages.get('settings');
+      if (!page) return;
+      this.index = page.items.indexOf(line);
+      this.refresh();
+    });
+    line.addEventListener('click', (event) => {
+      // Le clic droit de la souris n'arrive pas ici : un clic avance d'un
+      // cran, et la molette comme les fleches font les deux sens.
+      this.adjust(event.shiftKey ? -1 : 1, line);
+    });
+    line.addEventListener('wheel', (event) => {
+      event.preventDefault();
+      this.adjust(event.deltaY > 0 ? -1 : 1, line);
+    }, { passive: false });
+    host.appendChild(line);
+    this.rows.set(line, row);
+    return line;
+  }
+
+  /** Change la valeur d'une ligne de reglage et la reaffiche. */
+  private adjust(direction: number, line: HTMLButtonElement): void {
+    const row = this.rows.get(line);
+    if (!row || !this.store) return;
+    row.step(direction, this.store.current, this.store);
+    this.readSettings();
+    if (row.reload) this.onReload?.();
+  }
+
+  /** Reporte les valeurs courantes dans les lignes de la page de reglages. */
+  private readSettings(): void {
+    if (!this.store) return;
+    const settings: ModernRenderSettings = { ...this.store.current };
+    for (const [line, row] of this.rows) {
+      const value = row.read(settings, this.store);
+      (line.querySelector('.menu-setting__value') as HTMLElement).textContent = value.text;
+      const bar = line.querySelector('.menu-setting__bar') as HTMLElement;
+      const fill = bar.firstElementChild as HTMLElement;
+      bar.classList.toggle('menu-setting__bar--visible', value.fill !== undefined);
+      fill.style.width = `${Math.round((value.fill ?? 0) * 100)}%`;
+    }
+  }
+
   private showPage(id: string): void {
     const target = this.pages.get(id);
     if (!target) return;
@@ -251,6 +344,7 @@ export class MainMenu {
       page.element.className = `menu-screen ${leaving ? 'menu-screen--left' : 'menu-screen--right'}`;
     }
     this.page = id;
+    if (id === 'settings') this.readSettings();
     this.index = target.items.findIndex((item) => !item.disabled);
     if (this.index < 0) this.index = 0;
     this.refresh();
@@ -291,10 +385,17 @@ export class MainMenu {
 
     const entry = item.dataset.entry ?? '';
     if (entry === 'back') {
-      this.showPage('main');
+      // Ouverts en partie, les reglages se referment sur le jeu et non sur le
+      // menu principal.
+      if (this.inOverlay) this.onClose?.();
+      else this.showPage('main');
       return;
     }
-    if (this.page === 'main' && (entry === 'single' || entry === 'credits')) {
+    if (entry.startsWith('set:')) {
+      this.adjust(1, item);
+      return;
+    }
+    if (this.page === 'main' && (entry === 'single' || entry === 'credits' || entry === 'settings')) {
       this.showPage(entry);
       return;
     }
@@ -334,7 +435,26 @@ export class MainMenu {
         event.preventDefault();
         this.choose(this.index);
         break;
+      case 'ArrowLeft':
+      case 'KeyA': {
+        const item = this.pages.get(this.page)?.items[this.index];
+        if (item && this.rows.has(item)) {
+          event.preventDefault();
+          this.adjust(-1, item);
+        }
+        break;
+      }
+      case 'ArrowRight':
+      case 'KeyD': {
+        const item = this.pages.get(this.page)?.items[this.index];
+        if (item && this.rows.has(item)) {
+          event.preventDefault();
+          this.adjust(1, item);
+        }
+        break;
+      }
       case 'Escape':
+        if (this.inOverlay) break;
         if (this.page !== 'main') {
           event.preventDefault();
           this.showPage('main');

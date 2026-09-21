@@ -26,7 +26,7 @@ session.attachUI(ui);
 ui.setHudVisible(false);
 const settingsPanel = new SettingsPanel(overlayRoot, session.settings);
 const benchScreen = new BenchmarkScreen(overlayRoot);
-const menu = new MainMenu(overlayRoot, BUILD);
+const menu = new MainMenu(overlayRoot, BUILD, session.settings);
 const params = new URLSearchParams(location.search);
 /** Derniere carte jouee : un reglage de chargement demande de la reprendre. */
 let currentMap: MapEntry | null = null;
@@ -65,6 +65,12 @@ session.onStats = (stats) => overlay.updateStats(stats);
   weapon: () => session.measureViewModel(),
   textures: () => session.textureBudget(),
   place: (x: number, y: number, z: number, yaw = 0, pitch = 0) => session.place(x, y, z, yaw, pitch),
+  /**
+   * Panneau detaille : les soixante vis de reglage du rendu, etalonnage
+   * compris. Il sert a mettre l'image au point, pas a jouer, et n'est donc
+   * plus dans le menu.
+   */
+  tuning: () => settingsPanel.toggle(),
   /** Essaie un point de vue pour le fond du menu, en degres. */
   menuView: (x: number, y: number, z: number, yaw = 0, pitch = 0) => {
     session.leaveMenuView();
@@ -322,9 +328,19 @@ menu.onSource = (name) => void mountSource(name);
 menu.onSelect = (page, entry) => {
   if (page === 'single' && entry === 'start') void playFocusMap();
   else if (entry === 'benchmark') void startBenchmark();
-  else if (entry === 'settings') settingsPanel.toggle();
   else if (entry === 'arena') playDemo();
 };
+
+/*
+ * Un reglage prepare au chargement. La carte n'est pas reprise sur le champ :
+ * on regle souvent plusieurs crans de suite, et chacun rechargerait la carte.
+ * Elle l'est en fermant les reglages, ou au prochain lancement.
+ */
+menu.onReload = () => {
+  reloadPending = true;
+};
+
+menu.onClose = () => closeGameSettings();
 
 /**
  * Menu a l'ecran, avec le decor rendu derriere lui quand la carte est deja
@@ -340,7 +356,11 @@ function showMenu(): void {
 }
 
 benchScreen.onRepeat = () => void startBenchmark();
-benchScreen.onSettings = () => settingsPanel.toggle();
+benchScreen.onSettings = () => {
+  benchScreen.hide();
+  showMenu();
+  menu.openSettings();
+};
 benchScreen.onMenu = () => backToMenu();
 
 /** Carte mise en avant par le menu : celle de la demonstration. */
@@ -390,6 +410,21 @@ async function startBenchmark(): Promise<void> {
   console.log('banc de mesure', report);
 }
 
+/**
+ * Referme les reglages ouverts en partie. Un reglage prepare au chargement
+ * demande de reprendre la carte : elle est rechargee a ce moment, et pas
+ * pendant qu'on la regle, pour ne pas la recharger a chaque cran.
+ */
+function closeGameSettings(): void {
+  menu.hide();
+  if (reloadPending && currentMap) {
+    void playMap(currentMap);
+    return;
+  }
+  session.setPaused(false);
+  session.input.requestLock();
+}
+
 /** Retour au menu, quel que soit l'etat en cours. */
 function backToMenu(): void {
   session.cancelBenchmark();
@@ -420,6 +455,11 @@ window.addEventListener('keydown', (event) => {
   }
   // Echap pendant un essai l'interrompt : c'est la seule sortie, la souris
   // n'etant pas prise par le jeu a ce moment.
+  if (event.code === 'Escape' && mode === 'game' && menu.isVisible) {
+    event.preventDefault();
+    closeGameSettings();
+    return;
+  }
   if (event.code === 'Escape' && (mode === 'bench' || mode === 'report')) {
     event.preventDefault();
     backToMenu();
@@ -430,20 +470,17 @@ window.addEventListener('keydown', (event) => {
     return;
   }
   if (event.code === 'KeyR' && mode === 'game') session.respawn();
-  if (event.code === 'KeyG') {
-    settingsPanel.toggle();
-    /*
-     * Le panneau sert aussi depuis le menu et depuis le resultat d'un essai.
-     * La souris n'y est pas prise par le jeu : il n'y a alors ni verrou a
-     * relacher ni simulation a reprendre.
-     */
-    if (mode !== 'game') return;
-    if (settingsPanel.isVisible) {
+  /*
+   * Reglages en cours de partie : la meme page que dans le menu, posee par
+   * dessus le jeu, qui attend pendant ce temps.
+   */
+  if (event.code === 'KeyG' && mode === 'game') {
+    event.preventDefault();
+    if (menu.isVisible) closeGameSettings();
+    else {
+      menu.openSettings();
       session.input.releaseLock();
       session.setPaused(true);
-    } else {
-      session.setPaused(false);
-      session.input.requestLock();
     }
   }
 });
@@ -499,7 +536,10 @@ window.addEventListener('drop', async (event) => {
 async function boot(): Promise<void> {
   manifest = await readManifest();
   const names = manifest.mods.map((mod) => mod.name);
-  menu.setSources(names, names[0] ?? '');
+  // Le dossier de base du jeu passe en premier quand il est la : c'est lui
+  // qui sera monte, et c'est donc lui que le menu doit montrer comme actif.
+  const preferred = params.get('source') ?? (names.includes('baseq3') ? 'baseq3' : names[0]);
+  menu.setSources(names, preferred);
   // Le menu est la des la premiere image, sur fond noir : le decor ne le
   // rejoint qu'une fois la carte montee.
   menu.show();
@@ -512,8 +552,6 @@ async function boot(): Promise<void> {
     return;
   }
 
-  // Le dossier de base du jeu passe en premier quand il est la.
-  const preferred = params.get('source') ?? (names.includes('baseq3') ? 'baseq3' : names[0]);
   await mountSource(preferred);
 
   /*

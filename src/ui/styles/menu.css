@@ -329,3 +329,99 @@
   color: var(--qr-red-active);
   opacity: 0.9;
 }
+
+/*
+ * Page de reglages : le nom a gauche, la valeur a droite, rien autour. C'est
+ * la disposition du menu d'origine, et elle se lit d'un coup d'oeil sans
+ * cadre, sans carte et sans interrupteur arrondi.
+ */
+.menu-settings {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1px, 0.2vh, 4px);
+  margin-bottom: clamp(10px, 2vh, 26px);
+  width: min(620px, 84vw);
+}
+
+.menu-setting {
+  /*
+   * Une ligne de reglage se lit, elle ne s'annonce pas : son nom est plus
+   * clair que celui d'une entree de menu, et c'est la valeur qui porte le
+   * rouge.
+   */
+  opacity: 1;
+  color: #8f8f93;
+  display: grid;
+  grid-template-columns: 1fr clamp(60px, 9vw, 120px) clamp(72px, 8vw, 110px);
+  align-items: center;
+  gap: clamp(10px, 1.4vw, 22px);
+  font-size: clamp(13px, 1.05vw, 18px);
+  letter-spacing: 0.14em;
+  padding: clamp(4px, 0.7vh, 9px) clamp(10px, 1vw, 18px);
+  transform: none;
+}
+
+.menu-setting.menu-item--active {
+  color: var(--qr-text);
+  transform: none;
+  background: linear-gradient(90deg, rgba(197, 16, 16, 0) 0%, rgba(197, 16, 16, 0.12) 50%, rgba(197, 16, 16, 0) 100%);
+}
+
+.menu-setting__label {
+  text-align: right;
+  color: inherit;
+}
+
+.menu-setting__value {
+  text-align: left;
+  font-weight: 700;
+  color: #e0521f;
+}
+
+.menu-setting.menu-item--active .menu-setting__value {
+  color: var(--qr-red-active);
+}
+
+/*
+ * Jauge d'une valeur continue : un rail sombre et un remplissage rouge, au
+ * trait, sans poignee ronde. Elle n'apparait que pour les reglages qui en ont
+ * une, et garde sa place dans les autres lignes pour que la colonne tienne.
+ */
+.menu-setting__bar {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  opacity: 0;
+}
+
+.menu-setting__bar--visible {
+  opacity: 1;
+}
+
+.menu-setting__bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--qr-red-dark), var(--qr-red-active));
+  transition: width var(--qr-transition-fast) ease;
+}
+
+/*
+ * Reglages ouverts en pleine partie : le titre et le symbole s'effacent, et
+ * l'assombrissement reste leger pour qu'on voie ou l'on se trouve.
+ */
+.menu--overlay .menu__logo,
+.menu--overlay .menu__symbol {
+  display: none;
+}
+
+.menu--overlay {
+  background:
+    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(3, 3, 4, 0.82) 0%, rgba(3, 3, 4, 0.5) 100%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.45) 40%, rgba(0, 0, 0, 0.8) 100%);
+  justify-content: center;
+}
+
+/* Le bas de page appartient au menu, pas a une pause : il s'efface, et le
+   HUD du joueur reste lisible dessous. */
+.menu--overlay .menu__footer {
+  display: none;
+}
