@@ -120,6 +120,13 @@ export interface ModernRenderSettings {
    */
   gridSpecular: number;
   /**
+   * Force du micro-relief pose sur les surfaces du decor. Une texture
+   * agrandie n'a pas plus de detail a montrer que son original ; cette couche
+   * lui rend le grain qui manque de pres, sans rien couter en memoire. Zero
+   * rend la surface telle que ses cartes la decrivent.
+   */
+  microDetail: number;
+  /**
    * Relief et rugosite deduits de la luminance des textures d'origine. Rien
    * n'est remplace ni reecrit : la texture reste celle du jeu, le moteur en
    * derive seulement des donnees de surface au chargement. Le preset
@@ -184,6 +191,7 @@ export const PRESETS: Record<PresetName, ModernRenderSettings> = {
     ambientGain: 0.35,
     hdMaterials: false,
     gridSpecular: 0,
+    microDetail: 0,
     deriveMaterialDetail: false,
   },
   low: {
@@ -201,6 +209,7 @@ export const PRESETS: Record<PresetName, ModernRenderSettings> = {
     patchLevel: 5,
     hdMaterials: false,
     gridSpecular: 0,
+    microDetail: 0,
     deriveMaterialDetail: false,
   },
   medium: {
@@ -302,6 +311,7 @@ function baseModern(): ModernRenderSettings {
     ambientGain: 0.2,
     hdMaterials: true,
     gridSpecular: 1.6,
+    microDetail: 0.55,
     deriveMaterialDetail: true,
   };
 }

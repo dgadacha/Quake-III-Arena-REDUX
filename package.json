@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --port 5213 --strictPort",
     "check": "tsc --noEmit",
+    "test": "esbuild tools/materials.test.ts --bundle --format=esm --platform=node --outfile=dist/materials.test.mjs --log-level=error && node dist/materials.test.mjs",
     "textures:generate": "python3 tools/texture-pipeline/index.py"
   },
   "devDependencies": {

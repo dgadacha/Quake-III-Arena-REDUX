@@ -19,3 +19,6 @@ public/generated/
 # Binaire d agrandissement telecharge, avec ses modeles : outil externe, pas
 # du code du projet.
 tools/bin/
+
+# Cache de l interprete Python : produit a chaque execution de la chaine.
+__pycache__/

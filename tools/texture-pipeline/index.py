@@ -44,7 +44,7 @@ import upscaler
 import validator
 from aoGenerator import ambient_occlusion
 from classifier import MaterialType, classify
-from common import load_image, luminance, save_image
+from common import load_alpha, load_image, luminance, save_image
 from emissiveGenerator import emissive
 from heightGenerator import height as height_map
 from metalnessGenerator import metal_mask, metalness as metalness_map
@@ -60,9 +60,11 @@ MANIFEST = OUTPUT / 'manifest.json'
 SUFFIXES = {
     'baseColor': '_bc',
     'normal': '_n',
-    'roughness': '_r',
-    'metalness': '_m',
-    'ao': '_ao',
+    # Occlusion, rugosite et metal tiennent dans une seule image : un canal
+    # chacun, dans l'ordre que Three lit deja. Separees, ces trois cartes a un
+    # seul canal arrivaient comme des images HTML et occupaient quatre octets
+    # par pixel chacune, soit la moitie de la memoire video de la carte.
+    'orm': '_orm',
     'emissive': '_e',
     'height': '_h',
 }
@@ -78,11 +80,28 @@ class Job:
     light: shader_scripts.ShaderLight | None
 
 
+def _scaled(source: tuple[int, int], long_side: int | None) -> tuple[int, int] | None:
+    """
+    Taille imposee par la table des priorites, ramenee au rapport de la
+    texture. La table donne un seul nombre : c'est le cote le plus long.
+    """
+    if not long_side:
+        return None
+    width, height = source
+    if width >= height:
+        return long_side, max(1, round(long_side * height / width))
+    return max(1, round(long_side * width / height)), long_side
+
+
 def process(job: Job, engine: str, keep_height: bool) -> dict | None:
     """Traite une surface et rend son entree de manifeste."""
     import io
 
-    image = load_image(io.BytesIO(job.diffuse.read()))
+    raw = job.diffuse.read()
+    image = load_image(io.BytesIO(raw))
+    # Decoupe de la texture d'origine, quand elle en a une. Une grille dont on
+    # perd l'alpha devient un mur.
+    cutout = load_alpha(io.BytesIO(raw))
     declared = job.light.surface_light if job.light else 0.0
     rule = priority_table.priority(job.name)
     # Une surface peut imposer son moteur : voir la table des priorites.
@@ -109,10 +128,11 @@ def process(job: Job, engine: str, keep_height: bool) -> dict | None:
     # son bruit de compression, plutot que l'impression devant l'ecran.
     residual = cleaner.grain_level(cleaned)
 
-    size = rule.base or upscaler.target_size(image.shape[0])
+    source = (image.shape[1], image.shape[0])
+    size = _scaled(source, rule.base) or upscaler.target_size(*source)
     enlarged = upscaler.upscale(cleaned, size, engine)
 
-    map_size = rule.maps or size
+    map_size = _scaled(source, rule.maps) or size
     surface = enlarged if map_size == size else upscaler.upscale(cleaned, map_size, engine)
 
     # Continuite des bords : on ne corrige que si l'agrandissement a fait
@@ -153,19 +173,37 @@ def process(job: Job, engine: str, keep_height: bool) -> dict | None:
     stem = Path(job.name).name
 
     produced: dict[str, str] = {}
+    packed: dict[str, str] = {}
 
     def write(key: str, data: np.ndarray, normal_mode: bool = False) -> None:
+        """
+        Ecrit une carte en PNG, puis sa version compressee. Le jeu charge la
+        seconde quand la carte graphique sait lire les blocs, et le PNG sinon.
+        Seules la couleur et l'emission sont des couleurs : le relief et la
+        carte de surface portent des nombres, et se moyennent tels quels.
+        """
         path = directory / f"{stem}{SUFFIXES[key]}.png"
         save_image(data, path)
-        served = compressor.compress(path, normal_map=normal_mode)
-        produced[key] = str(served.relative_to(ROOT / 'public')).replace('\\', '/')
+        relative = lambda file: str(file.relative_to(ROOT / 'public')).replace('\\', '/')
+        produced[key] = relative(path)
+        served = compressor.compress(
+            path, normal_map=normal_mode, srgb=key in ('baseColor', 'emissive'),
+        )
+        if served != path:
+            packed[key] = relative(served)
 
+    if cutout is not None:
+        opacity = upscaler.upscale(cutout[..., None].repeat(3, axis=2), size, 'lanczos')[..., :1]
+        base = np.concatenate([base, opacity], axis=2)
     write('baseColor', base)
     write('normal', normals, normal_mode=True)
-    write('roughness', rough)
-    write('ao', occlusion)
-    if isinstance(metal, np.ndarray):
-        write('metalness', metal)
+    # Occlusion, rugosite, metal. Quand la part metallique est une constante,
+    # le canal reste a un et c'est le materiau qui la porte.
+    write('orm', np.stack([
+        occlusion,
+        rough,
+        metal if isinstance(metal, np.ndarray) else np.ones_like(rough),
+    ], axis=-1))
     if keep_height:
         write('height', relief)
 
@@ -187,9 +225,10 @@ def process(job: Job, engine: str, keep_height: bool) -> dict | None:
         kind=kind.value,
         resolution=size,
         map_resolution=map_size,
-        source_resolution=image.shape[0],
-        engine=engine if size > image.shape[0] else 'copie',
+        source_resolution=source,
+        engine=engine if max(size) > max(source) else 'copie',
         maps=produced,
+        compressed=packed,
         metalness=float(material.metalness) if not isinstance(metal, np.ndarray) else -1.0,
         normal_strength=material.normal_strength,
         roughness_multiplier=1.0,
@@ -363,8 +402,7 @@ def main() -> int:
         f" moteurs : {', '.join(engines)}"
     )
 
-    tool = compressor.available()
-    print(f"compression : {tool if tool else 'aucune, les cartes restent en png'}")
+    print('compression : blocs BC7 ecrits a cote de chaque png')
 
     chosen = selection(arguments, images, lights)
     if not chosen:

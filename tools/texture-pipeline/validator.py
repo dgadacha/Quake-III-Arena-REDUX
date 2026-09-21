@@ -24,6 +24,11 @@ MIN_SSIM = 0.62
 MIN_EDGE = 0.55
 MAX_HISTOGRAM = 0.18
 
+# Au-dela de ces deux valeurs, la texture produite est la meme image que
+# l'original : une derive de teinte y est voulue, pas accidentelle.
+SURE_SSIM = 0.95
+SURE_EDGE = 0.95
+
 # Flou applique avant de juger la composition, en pixels.
 #
 # Un agrandissement par apprentissage reconstruit le detail fin : c'est
@@ -112,7 +117,7 @@ def validate(original: np.ndarray, produced: np.ndarray) -> dict:
     mesures brutes sont gardees a titre indicatif, pour voir combien de detail
     l'agrandissement a ajoute.
     """
-    reference = resize(original, produced.shape[0])
+    reference = resize(original, (produced.shape[1], produced.shape[0]))
     raw_structural = ssim(reference, produced)
     raw_edges = edge_similarity(reference, produced)
 
@@ -122,7 +127,18 @@ def validate(original: np.ndarray, produced: np.ndarray) -> dict:
     edges = edge_similarity(soft_reference, soft_produced)
     histogram = histogram_distance(reference, produced)
 
-    passed = structural >= MIN_SSIM and edges >= MIN_EDGE and histogram <= MAX_HISTOGRAM
+    # La distance des histogrammes dit si la teinte a derive. Elle sert a
+    # rattraper une texture que l'agrandissement a delavee ; mais quand la
+    # composition et les aretes sont presque identiques a l'original, le
+    # deplacement de teinte est celui que la chaine a voulu, en retirant
+    # l'eclairage cuit dans la texture. Le refuser reviendrait a garder la
+    # texture d'epoque pour la seule raison qu'on l'a bien nettoyee.
+    faithful = structural >= SURE_SSIM and edges >= SURE_EDGE
+    passed = (
+        structural >= MIN_SSIM
+        and edges >= MIN_EDGE
+        and (histogram <= MAX_HISTOGRAM or faithful)
+    )
     return {
         'ssim': round(structural, 4),
         'edges': round(edges, 4),

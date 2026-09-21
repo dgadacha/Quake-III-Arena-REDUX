@@ -84,6 +84,7 @@ const SLIDERS: SliderRow[] = [
   { key: 'lightmapLift', label: 'Plancher des lightmaps', min: 0, max: 0.08, step: 0.002 },
   { key: 'ambientGain', label: 'Ambiance', min: 0, max: 2, step: 0.05, reload: true },
   { key: 'gridSpecular', label: 'Reflets de la grille', min: 0, max: 3, step: 0.05 },
+  { key: 'microDetail', label: 'Micro-relief', min: 0, max: 1.5, step: 0.05, reload: true },
   { key: 'maxDynamicLights', label: 'Lumieres allumees', min: 0, max: 16, step: 1, reload: true },
   { key: 'patchLevel', label: 'Finesse des courbes', min: 2, max: 14, step: 1, reload: true },
   { key: 'anisotropy', label: 'Filtrage anisotrope', min: 1, max: 16, step: 1, reload: true },

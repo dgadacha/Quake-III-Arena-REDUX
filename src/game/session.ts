@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Contents, type Vec3 } from '../formats/bsp';
 import { Renderer } from '../renderer/Renderer';
 import { RenderPipeline } from '../renderer/RenderPipeline';
+import { hdMaterials } from '../renderer/materials/HDMaterialLoader';
 import { RenderSettingsStore, type ModernRenderSettings, type PresetName } from '../renderer/RenderSettings';
 import { PerformanceHUD, type FrameMetrics } from '../renderer/debug/PerformanceHUD';
 import { Effects } from '../renderer/effects/Effects';
@@ -32,6 +33,7 @@ import {
 } from '../renderer/materials/Q3Material';
 import { gradeFor, NEUTRAL_GRADE, type MapGrade } from '../renderer/grading/MapGrading';
 import { benchmarkShot, type BenchmarkShot } from '../renderer/debug/Benchmark';
+import { measureTextureBudget } from '../renderer/debug/TextureBudget';
 
 import { Input } from './input';
 import { pickSpawn, type Level } from './level';
@@ -134,6 +136,10 @@ export class Session {
     THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
     this.renderer = new Renderer(canvas, this.settings.current);
+    // Les cartes HD existent en deux versions : des blocs compresses, lus
+    // directement par la carte graphique, et des PNG. Le choix se fait ici,
+    // une fois pour la session, d'apres ce que le materiel sait lire.
+    hdMaterials.setRenderer(this.renderer.webgl);
     this.pipeline = new RenderPipeline(this.renderer);
     this.camera = new THREE.PerspectiveCamera(90, 1, 1, 12000);
     this.camera.up.set(0, 0, 1);
@@ -355,6 +361,35 @@ export class Session {
    * meme position, la meme orientation et le meme champ de vision : c'est la
    * seule facon de comparer deux reglages.
    */
+  /** Ce que les textures de la carte affichee occupent en memoire video. */
+  textureBudget() {
+    return measureTextureBudget(this.scene);
+  }
+
+  /**
+   * Place la vue a un point donne et arrete le temps. Sert a retrouver
+   * exactement la vue d'une capture : le point de calibration est fixe, celui
+   * dont on parle ne l'est pas.
+   */
+  place(x: number, y: number, z: number, yaw = 0, pitch = 0): void {
+    this.state.origin[0] = x;
+    this.state.origin[1] = y;
+    this.state.origin[2] = z;
+    this.state.previousOrigin[0] = x;
+    this.state.previousOrigin[1] = y;
+    this.state.previousOrigin[2] = z;
+    this.state.velocity[0] = 0;
+    this.state.velocity[1] = 0;
+    this.state.velocity[2] = 0;
+    this.input.setAngles(yaw, pitch);
+    // Le temps est arrete avant de dessiner : un pas de simulation de duree
+    // nulle laisse des valeurs invalides dans l'etat du joueur. Les
+    // animations, elles, continuent d'avancer.
+    this.setPaused(true);
+    this.update(0);
+    this.pipeline.render();
+  }
+
   benchmark(index = 0): BenchmarkShot {
     const shot = benchmarkShot(index);
     this.state.origin[0] = shot.origin[0];

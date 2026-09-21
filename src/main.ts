@@ -46,6 +46,29 @@ session.onStats = (stats) => overlay.updateStats(stats);
   banc: (index = 0) => session.benchmark(index),
   luminance: (samples = 320) => session.histogram(samples),
   weapon: () => session.measureViewModel(),
+  textures: () => session.textureBudget(),
+  place: (x: number, y: number, z: number, yaw = 0, pitch = 0) => session.place(x, y, z, yaw, pitch),
+  /**
+   * Compare une carte compressee a son PNG, en la dessinant. Sans argument,
+   * prend la premiere carte du manifeste qui existe dans les deux formats.
+   */
+  compression: async (name?: string) => {
+    const { compareCompression } = await import('./renderer/debug/CompressionCheck');
+    const { hdMaterials } = await import('./renderer/materials/HDMaterialLoader');
+    await hdMaterials.open();
+    const chosen = name ?? hdMaterials.names.find((candidate) => {
+      const entry = hdMaterials.entry(candidate);
+      return entry?.compressed?.baseColor && entry.maps.baseColor;
+    });
+    const entry = chosen ? hdMaterials.entry(chosen) : null;
+    if (!entry?.compressed?.baseColor || !entry.maps.baseColor) return 'aucune carte compressee';
+    const report = await compareCompression(
+      session.renderer.webgl,
+      entry.maps.baseColor,
+      entry.compressed.baseColor,
+    );
+    return { name: chosen, lisible: hdMaterials.compressionAvailable, ...report };
+  },
 };
 
 /** Laisse le navigateur peindre entre deux etapes lourdes. */

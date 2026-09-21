@@ -1,5 +1,5 @@
 import { Contents, Surface } from '../../formats/bsp';
-import type { ShaderSummary } from '../../formats/shader';
+import type { ShaderSummary, SurfaceLayer } from '../../formats/shader';
 
 /**
  * Lecture moderne d'une surface de carte. Rien n'est ecrit dans les fichiers du
@@ -28,6 +28,10 @@ export interface SurfaceMetadata {
   slick: boolean;
   scroll: [number, number] | null;
   wavy: boolean;
+  /** Couches decrites par le script, avec leurs transformations. */
+  layers: SurfaceLayer[];
+  /** Ondulation de la surface declaree par le script, avec ses valeurs. */
+  deformWave: ShaderSummary['deformWave'];
 }
 
 /** Noms de textures qui designent une surface lumineuse sans le declarer. */
@@ -89,6 +93,8 @@ export function classifySurface(
     alphaTest: Boolean(summary?.alphaTest),
     slick: (surfaceFlags & Surface.SLICK) !== 0,
     scroll: summary?.scroll ?? null,
+    layers: summary?.layers ?? [],
+    deformWave: summary?.deformWave ?? null,
     wavy: Boolean(summary?.wavy),
   };
 }

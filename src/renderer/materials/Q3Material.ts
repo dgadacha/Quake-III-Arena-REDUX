@@ -4,6 +4,8 @@ import type { LoadedTexture } from './TextureLibrary';
 import type { HDMaterialMaps } from './HDMaterialLoader';
 import type { LightGridTextures } from '../../bsp/LightGridTexture';
 import { materialTuning, type MaterialTuning } from './MaterialTuning';
+import { detailTexture, detailTiles } from './MicroDetail';
+import { lavaSurface } from './LavaSurface';
 
 /**
  * Materiaux du decor. Les textures et les scripts du jeu ne sont pas touches :
@@ -36,6 +38,11 @@ export interface WorldMaterialOptions {
   grid?: LightGridTextures | null;
   /** Force du reflet tire de la grille. Zero le coupe. */
   gridSpecular?: number;
+  /**
+   * Force du micro-relief. Zero le coupe et rend la surface telle que ses
+   * cartes la decrivent, ce qui est le point de comparaison.
+   */
+  microDetail: number;
 }
 
 /**
@@ -168,7 +175,7 @@ export function createWorldMaterial(options: WorldMaterialOptions): THREE.MeshSt
   const material = new THREE.MeshStandardMaterial({
     map: hd?.map ?? texture?.map ?? null,
     normalMap: hd?.normalMap ?? texture?.normalMap ?? null,
-    roughnessMap: hd?.roughnessMap ?? texture?.roughnessMap ?? null,
+    roughnessMap: hd?.surfaceMap ?? texture?.roughnessMap ?? null,
     lightMap: options.lightMap,
     lightMapIntensity: options.lightMapIntensity,
     metalness: metadata.isReflective ? 0.35 : 0.05,
@@ -220,9 +227,35 @@ export function createWorldMaterial(options: WorldMaterialOptions): THREE.MeshSt
     material.normalScale.multiplyScalar(tuning.normal);
     patches.push(albedoTuningPatch(tuning));
   }
+  /*
+   * Micro-relief : il demande une normale, puisque c'est elle qu'il incline,
+   * et n'a rien a faire sur une vitre, une surface additive ou le ciel.
+   */
+  if (
+    options.microDetail > 0
+    && material.normalMap
+    && material.map
+    && !metadata.isSky
+    && !metadata.isAdditive
+    && !metadata.isTransparent
+  ) {
+    const source = hd?.entry.sourceSize?.[0] ?? (texture?.map.image?.width as number | undefined) ?? 128;
+    patches.push(microDetailPatch(detailTiles(source), options.microDetail));
+  }
   if (options.lightMap) patches.push(lightmapLiftPatch());
   if (options.vertexLit) patches.push(vertexLightPatch(options.vertexLightIntensity));
   if (metadata.isWater || metadata.isSlime) patches.push(liquidPatch(material, metadata.isSlime));
+  /*
+   * Lave. Elle a son propre traitement : ce n'est ni de l'eau, qui reflete,
+   * ni une surface fixe, et tout son mouvement est deja decrit par son
+   * script. L'emission declaree devient la chaleur de ses veines.
+   */
+  if (metadata.isLava && material.map) {
+    const declared = hd?.entry.emission?.intensity ?? metadata.emissiveStrength ?? 1;
+    const lava = lavaSurface(material, metadata, Math.max(0.6, declared));
+    liquidMaterials.push({ material, uniforms: lava.uniforms });
+    patches.push({ key: lava.key, apply: lava.apply });
+  }
   /*
    * Reflet tire de la grille d'eclairage. Il n'est pose que sur les surfaces
    * opaques du decor : une vitre ou une surface additive n'a rien a y gagner,
@@ -233,6 +266,41 @@ export function createWorldMaterial(options: WorldMaterialOptions): THREE.MeshSt
   }
   patchMaterial(material, patches);
   return material;
+}
+
+/**
+ * Micro-relief.
+ *
+ * La texture agrandie n'a pas plus de detail a montrer que son original ; ce
+ * qui manque de pres, c'est le grain. Une couche unique, repetee bien plus
+ * souvent que la texture elle-meme, incline legerement la normale et module la
+ * teinte. Elle s'efface seule avec la distance : ses niveaux de mipmap tendent
+ * vers une surface plane, donc vers rien.
+ */
+function microDetailPatch(tiles: number, strength: number): ShaderPatch {
+  return {
+    // La source est la meme pour toutes les surfaces : une seule clef, donc un
+    // seul programme, et la frequence passe par un uniforme.
+    key: 'microDetail',
+    apply(shader) {
+      shader.uniforms.detailMap = { value: detailTexture() };
+      shader.uniforms.detailTiles = { value: tiles };
+      shader.uniforms.detailStrength = { value: strength };
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+          uniform sampler2D detailMap;
+          uniform float detailTiles;
+          uniform float detailStrength;`)
+        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+          #ifdef USE_NORMALMAP_TANGENTSPACE
+            vec2 microSlope = texture2D(detailMap, vNormalMapUv * detailTiles).xy * 2.0 - 1.0;
+            normal = normalize(normal + tbn * vec3(microSlope * detailStrength, 0.0));
+          #endif`)
+        .replace('#include <map_fragment>', `#include <map_fragment>
+          float microGrain = texture2D(detailMap, vMapUv * detailTiles).z;
+          diffuseColor.rgb *= 1.0 + (microGrain - 0.5) * detailStrength * 0.4;`);
+    },
+  };
 }
 
 function albedoTuningPatch(tuning: MaterialTuning): ShaderPatch {
@@ -399,23 +467,29 @@ function applyHDMaps(
       hd.normalStrength * size.height / 256,
     );
   }
-  if (hd.roughnessMap) {
+  if (hd.surfaceMap) {
+    /*
+     * Une seule texture porte les trois proprietes de surface, un canal
+     * chacune : Three lit le rouge en occlusion, le vert en rugosite et le
+     * bleu en metal. C'est la convention des materiaux de glTF, et elle evite
+     * trois televersements RGBA pour trois images a un seul canal.
+     */
+    material.roughnessMap = hd.surfaceMap;
+    material.metalnessMap = hd.surfaceMap;
+    material.aoMap = hd.surfaceMap;
+    material.aoMapIntensity = 0.7;
     // La carte multiplie cette valeur : c'est elle qui porte la variation.
     material.roughness = hd.roughnessMultiplier;
   }
   const ceiling = metalnessCeiling();
-  if (hd.metalnessMap) {
-    material.metalnessMap = hd.metalnessMap;
+  if (hd.metalness < 0) {
+    // Moins un : la part metallique est dans le canal bleu, pas constante.
     material.metalness = options.lightMap ? ceiling : 1;
-  } else if (hd.metalness >= 0) {
+  } else {
     material.metalness = options.lightMap ? Math.min(hd.metalness, ceiling) : hd.metalness;
   }
   // Force du reflet : elle vient de la matiere declaree par la chaine.
   material.envMapIntensity = ENVIRONMENT_INTENSITY[hd.entry.type] ?? 0.35;
-  if (hd.aoMap) {
-    material.aoMap = hd.aoMap;
-    material.aoMapIntensity = 0.7;
-  }
   /*
    * Emission. Ce n'est plus une devinette tiree du nom de la texture : le
    * script du jeu dit quelle couche est lumineuse, avec quelle puissance elle

@@ -55,7 +55,7 @@ def roughness(
 
     if variation > 0:
         # Deux echelles : de larges zones, et des taches plus serrees dedans.
-        size = image.shape[0]
+        size = (image.shape[1], image.shape[0])
         large = value_noise(size, 3, octaves=2, seed=seed)
         patches = value_noise(size, 7, octaves=3, seed=seed + 1)
         field = np.clip(large * 0.65 + patches * 0.35, 0.0, 1.0)

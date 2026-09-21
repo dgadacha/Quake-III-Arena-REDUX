@@ -18,6 +18,19 @@ from PIL import Image
 
 Image.MAX_IMAGE_PIXELS = None
 
+# Une taille demandee : un cote, quand la texture est carree, ou un couple
+# largeur-hauteur. Les textures du jeu ne sont pas toutes carrees, et les
+# ramener au carre coutait de la memoire pour rien : un trim de 64 par 256
+# occupait autant qu'une plaque de 256 carres.
+Size = int | tuple[int, int]
+
+
+def dimensions(size: Size) -> tuple[int, int]:
+    """Largeur et hauteur demandees, qu'on ait donne un cote ou un couple."""
+    if isinstance(size, tuple):
+        return int(size[0]), int(size[1])
+    return int(size), int(size)
+
 
 def load_image(path) -> np.ndarray:
     """Charge une image en RGB flottant, zero-un."""
@@ -35,20 +48,25 @@ def load_alpha(path) -> np.ndarray | None:
 
 
 def save_image(array: np.ndarray, path) -> None:
-    """Ecrit une image flottante zero-un. Un seul canal donne une image grise."""
+    """
+    Ecrit une image flottante zero-un. Un seul canal donne une image grise,
+    quatre donnent une image a canal alpha : les grilles et les barreaux du jeu
+    sont des textures decoupees, et sans leur alpha ils redeviennent pleins.
+    """
     data = np.clip(array, 0.0, 1.0)
     data = (data * 255.0 + 0.5).astype(np.uint8)
-    mode = 'L' if data.ndim == 2 else 'RGB'
+    mode = 'L' if data.ndim == 2 else ('RGBA' if data.shape[2] == 4 else 'RGB')
     Image.fromarray(data, mode=mode).save(path, optimize=True)
 
 
-def resize(array: np.ndarray, size: int, filter=Image.LANCZOS) -> np.ndarray:
-    """Rechantillonne une image flottante vers un carre de cote demande."""
+def resize(array: np.ndarray, size: Size, filter=Image.LANCZOS) -> np.ndarray:
+    """Rechantillonne une image flottante vers la taille demandee."""
+    width, height = dimensions(size)
     single = array.ndim == 2
     data = np.clip(array, 0.0, 1.0)
     data = (data * 255.0 + 0.5).astype(np.uint8)
     image = Image.fromarray(data, mode='L' if single else 'RGB')
-    return np.asarray(image.resize((size, size), filter), dtype=np.float32) / 255.0
+    return np.asarray(image.resize((width, height), filter), dtype=np.float32) / 255.0
 
 
 def luminance(rgb: np.ndarray) -> np.ndarray:
@@ -171,7 +189,7 @@ def normalize01(plane: np.ndarray, low: float = 0.5, high: float = 99.5) -> np.n
     return np.clip((plane - minimum) / (maximum - minimum), 0.0, 1.0)
 
 
-def value_noise(size: int, cells: int, octaves: int = 3, seed: int = 1) -> np.ndarray:
+def value_noise(size: Size, cells: int, octaves: int = 3, seed: int = 1) -> np.ndarray:
     """
     Bruit doux et repetable, entre zero et un.
 
@@ -180,33 +198,46 @@ def value_noise(size: int, cells: int, octaves: int = 3, seed: int = 1) -> np.nd
     refermee sur elle-meme : le bruit se repete sans couture, comme la texture
     qu'il accompagne.
 
+    Le nombre de cellules est donne pour le cote le plus court, et l'autre en
+    recoit d'autant plus qu'il est long : sur une texture deux fois plus haute
+    que large, les taches restent carrees au lieu d'etre etirees.
+
     Il sert a decrire ce qu'une texture d'epoque ne dit pas : qu'une dalle est
     plus usee qu'une autre, qu'un coin de sol est humide et renvoie la lumiere
     la ou le reste est mat.
     """
+    width, height = dimensions(size)
+    short = max(1, min(width, height))
     generator = np.random.default_rng(seed)
-    total = np.zeros((size, size), dtype=np.float32)
+    total = np.zeros((height, width), dtype=np.float32)
     amplitude = 1.0
     weight = 0.0
 
     for octave in range(octaves):
-        count = max(2, cells * (2 ** octave))
-        grid = generator.random((count, count)).astype(np.float32)
+        step = 2 ** octave
+        count_x = max(2, int(round(cells * width / short)) * step)
+        count_y = max(2, int(round(cells * height / short)) * step)
+        grid = generator.random((count_y, count_x)).astype(np.float32)
         # Repetition : la derniere ligne et la derniere colonne rejoignent les premieres.
         grid = np.pad(grid, ((0, 1), (0, 1)), mode='wrap')
 
-        positions = np.linspace(0, count, size, endpoint=False, dtype=np.float32)
-        low = np.floor(positions).astype(np.int32)
-        fraction = positions - low
+        columns = np.linspace(0, count_x, width, endpoint=False, dtype=np.float32)
+        rows_axis = np.linspace(0, count_y, height, endpoint=False, dtype=np.float32)
+        low_x = np.floor(columns).astype(np.int32)
+        low_y = np.floor(rows_axis).astype(np.int32)
         # Courbe lissee : la derivee s'annule aux bords des cellules.
-        smooth = fraction * fraction * (3 - 2 * fraction)
+        fraction_x = columns - low_x
+        fraction_y = rows_axis - low_y
+        smooth_x = fraction_x * fraction_x * (3 - 2 * fraction_x)
+        smooth_y = fraction_y * fraction_y * (3 - 2 * fraction_y)
 
-        rows = grid[low][:, low] * (1 - smooth)[None, :] + grid[low][:, low + 1] * smooth[None, :]
-        rows_next = (
-            grid[low + 1][:, low] * (1 - smooth)[None, :]
-            + grid[low + 1][:, low + 1] * smooth[None, :]
-        )
-        octave_noise = rows * (1 - smooth)[:, None] + rows_next * smooth[:, None]
+        corner_00 = grid[np.ix_(low_y, low_x)]
+        corner_01 = grid[np.ix_(low_y, low_x + 1)]
+        corner_10 = grid[np.ix_(low_y + 1, low_x)]
+        corner_11 = grid[np.ix_(low_y + 1, low_x + 1)]
+        top = corner_00 * (1 - smooth_x)[None, :] + corner_01 * smooth_x[None, :]
+        bottom = corner_10 * (1 - smooth_x)[None, :] + corner_11 * smooth_x[None, :]
+        octave_noise = top * (1 - smooth_y)[:, None] + bottom * smooth_y[:, None]
 
         total += octave_noise * amplitude
         weight += amplitude

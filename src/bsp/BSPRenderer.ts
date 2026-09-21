@@ -25,6 +25,8 @@ export interface WorldBuildOptions {
   hdMaterials?: boolean;
   /** Force du reflet tire de la grille d'eclairage de la carte. */
   gridSpecular?: number;
+  /** Force du micro-relief pose sur les surfaces du decor. */
+  microDetail?: number;
   /** Finesse des surfaces courbes. */
   patchLevel?: number;
   lightMapIntensity?: number;
@@ -254,6 +256,7 @@ async function buildMeshes(
       normalScale: options.normalScale ?? 0.8,
       grid: context.grid,
       gridSpecular: options.gridSpecular ?? 0,
+      microDetail: options.microDetail ?? 0,
     };
     const material = createWorldMaterial({ ...common, hd: null });
 

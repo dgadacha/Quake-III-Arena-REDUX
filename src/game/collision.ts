@@ -109,6 +109,14 @@ interface TraceWork {
   result: TraceResult;
 }
 
+/** Profondeur maximale de la descente dans l'arbre de collision. */
+const MAX_TRACE_DEPTH = 128;
+
+/** Vrai quand les trois coordonnees sont des nombres exploitables. */
+function isFinite3(point: Vec3): boolean {
+  return Number.isFinite(point[0]) && Number.isFinite(point[1]) && Number.isFinite(point[2]);
+}
+
 export class CollisionWorld {
   readonly brushes: CollisionBrush[];
   /** Portes, plateformes et panneaux : ils ne sont pas dans l'arbre. */
@@ -194,6 +202,24 @@ export class CollisionWorld {
   }
 
   trace(start: Vec3, end: Vec3, mins: Vec3, maxs: Vec3, mask = MASK_SOLID): TraceResult {
+    /*
+     * Un trajet dont une coordonnee n'est pas un nombre ne peut pas etre
+     * decoupe : toutes les comparaisons sont fausses, la descente se coupe en
+     * deux indefiniment et la pile deborde, ce qui arrete l'image entiere.
+     * Mieux vaut rendre un trajet libre et laisser l'appelant continuer.
+     */
+    if (!isFinite3(start) || !isFinite3(end)) {
+      return {
+        fraction: 1,
+        endPosition: [...end] as Vec3,
+        normal: [0, 0, 0],
+        startSolid: false,
+        allSolid: false,
+        surfaceFlags: 0,
+        contents: 0,
+      };
+    }
+
     const result: TraceResult = {
       fraction: 1,
       endPosition: [...end] as Vec3,
@@ -286,8 +312,19 @@ export class CollisionWorld {
   }
 
   /** Descente dans l'arbre : seules les feuilles traversees sont examinees. */
-  private traceNode(work: TraceWork, node: number, startFrac: number, endFrac: number, p1: Vec3, p2: Vec3): void {
+  private traceNode(
+    work: TraceWork,
+    node: number,
+    startFrac: number,
+    endFrac: number,
+    p1: Vec3,
+    p2: Vec3,
+    depth = 0,
+  ): void {
     if (work.result.fraction <= startFrac) return;
+    // Un arbre de collision est profond de quelques dizaines de niveaux ; au
+    // dela, c'est que le decoupage ne progresse plus.
+    if (depth > MAX_TRACE_DEPTH) return;
 
     if (node < 0) {
       const leaf = this.map!.leafs[-(node + 1)];
@@ -314,11 +351,11 @@ export class CollisionWorld {
       Math.abs(work.extents[2] * plane.normal[2]);
 
     if (t1 >= offset && t2 >= offset) {
-      this.traceNode(work, bspNode.children[0], startFrac, endFrac, p1, p2);
+      this.traceNode(work, bspNode.children[0], startFrac, endFrac, p1, p2, depth + 1);
       return;
     }
     if (t1 < -offset && t2 < -offset) {
-      this.traceNode(work, bspNode.children[1], startFrac, endFrac, p1, p2);
+      this.traceNode(work, bspNode.children[1], startFrac, endFrac, p1, p2, depth + 1);
       return;
     }
 
@@ -348,9 +385,9 @@ export class CollisionWorld {
     const near = bspNode.children[side];
     const far = bspNode.children[side ^ 1];
     const midEnter = startFrac + (endFrac - startFrac) * fracEnter;
-    this.traceNode(work, near, startFrac, midEnter, p1, lerp(p1, p2, fracEnter));
+    this.traceNode(work, near, startFrac, midEnter, p1, lerp(p1, p2, fracEnter), depth + 1);
     const midLeave = startFrac + (endFrac - startFrac) * fracLeave;
-    this.traceNode(work, far, midLeave, endFrac, lerp(p1, p2, fracLeave), p2);
+    this.traceNode(work, far, midLeave, endFrac, lerp(p1, p2, fracLeave), p2, depth + 1);
   }
 
   /** Surface courbe d'une feuille : chacune de ses facettes est un volume. */

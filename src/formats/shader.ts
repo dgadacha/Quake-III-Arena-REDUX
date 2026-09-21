@@ -20,6 +20,10 @@ export interface ShaderStage {
    * frequence, comme dans le script. C'est ce qui fait battre une lampe.
    */
   rgbWave: { base: number; amplitude: number; phase: number; frequency: number } | null;
+  /** Couleur imposee a la couche : rgbGen const ( r g b ). */
+  rgbConst: [number, number, number] | null;
+  /** Onde appliquee a l'opacite de la couche : alphaGen wave. */
+  alphaWave: { base: number; amplitude: number; phase: number; frequency: number } | null;
   tcGen: string;
   tcMods: string[];
   depthWrite: boolean;
@@ -65,6 +69,8 @@ function emptyStage(): ShaderStage {
     alphaFunc: '',
     rgbGen: '',
     rgbWave: null,
+    rgbConst: null,
+    alphaWave: null,
     tcGen: '',
     tcMods: [],
     depthWrite: true,
@@ -173,8 +179,35 @@ export function parseShaderScript(text: string): ShaderDefinition[] {
           case 'alphafunc':
             stage.alphaFunc = (words[1] ?? '').toLowerCase();
             break;
+          case 'alphagen': {
+            // alphaGen wave <forme> <base> <amplitude> <phase> <frequence>
+            if ((words[1] ?? '').toLowerCase() === 'wave') {
+              const values = words.slice(3).map(Number);
+              if (values.length >= 4 && values.slice(0, 4).every(Number.isFinite)) {
+                stage.alphaWave = {
+                  base: values[0],
+                  amplitude: values[1],
+                  phase: values[2],
+                  frequency: values[3],
+                };
+              }
+            }
+            break;
+          }
           case 'rgbgen': {
             stage.rgbGen = words.slice(1).join(' ').toLowerCase();
+            // rgbGen const ( r g b ) : la couche prend cette teinte.
+            if ((words[1] ?? '').toLowerCase() === 'const') {
+              const numbers = words
+                .slice(2)
+                .join(' ')
+                .replace(/[()]/g, ' ')
+                .trim()
+                .split(/\s+/)
+                .map(Number)
+                .filter(Number.isFinite);
+              if (numbers.length >= 3) stage.rgbConst = [numbers[0], numbers[1], numbers[2]];
+            }
             // rgbGen wave <forme> <base> <amplitude> <phase> <frequence>
             if ((words[1] ?? '').toLowerCase() === 'wave') {
               const values = words.slice(3).map(Number);
@@ -318,6 +351,40 @@ export interface ShaderSummary {
   sun: { color: [number, number, number]; intensity: number; azimuth: number; elevation: number } | null;
   /** Rangee de tri demandee par le script : additive, banniere, decal. */
   sort: string;
+  /**
+   * Couches dessinees, telles que le script les decrit. Une lave, par exemple,
+   * en superpose deux : une croute qui derive lentement et une nappe additive
+   * a l'echelle inversee, dont l'opacite bat. C'est de la que vient son
+   * mouvement, et il n'y a donc rien a inventer.
+   */
+  layers: SurfaceLayer[];
+  /**
+   * deformVertexes wave : la surface elle-meme ondule. Les valeurs sont celles
+   * du script, division comprise, qui etale l'onde le long de la surface.
+   */
+  deformWave: {
+    division: number;
+    base: number;
+    amplitude: number;
+    phase: number;
+    frequency: number;
+  } | null;
+}
+
+/** Une couche d'une surface, avec les transformations que le script lui donne. */
+export interface SurfaceLayer {
+  texture: string;
+  additive: boolean;
+  /** tcMod scale : nombre de repetitions de l'image sur la surface. */
+  scale: [number, number];
+  /** tcMod scroll : defilement, en unites de texture par seconde. */
+  scroll: [number, number];
+  /** tcMod turb : distorsion des coordonnees. */
+  turb: { base: number; amplitude: number; phase: number; frequency: number } | null;
+  /** rgbGen const : teinte imposee. */
+  tint: [number, number, number] | null;
+  /** alphaGen wave : opacite qui bat. */
+  alphaWave: { base: number; amplitude: number; phase: number; frequency: number } | null;
 }
 
 const HIDDEN_PARAMS = ['nodraw', 'trans', 'hint', 'skip'];
@@ -349,11 +416,14 @@ export function summarizeShader(definition: ShaderDefinition): ShaderSummary {
     fog: definition.fogParams,
     sun: definition.sun,
     sort: definition.sort,
+    layers: [],
+    deformWave: readDeformWave(definition.deforms),
   };
 
   for (const stage of definition.stages) {
     if (!stage.map || stage.map === '$lightmap' || stage.map === '$whiteimage') continue;
 
+    summary.layers.push(readLayer(stage));
     const blends = stage.blendSource && stage.blendDest;
     const additive =
       stage.blendSource === 'gl_one' && (stage.blendDest === 'gl_one' || stage.blendDest === 'gl_src_alpha');
@@ -384,6 +454,64 @@ export function summarizeShader(definition: ShaderDefinition): ShaderSummary {
   if (!summary.texture && definition.editorImage) summary.texture = definition.editorImage;
   if (HIDDEN_PARAMS.some((param) => param === 'nodraw' && params.has(param))) summary.nodraw = true;
   return summary;
+}
+
+/** Transformations d'une couche, lues telles que le script les ecrit. */
+function readLayer(stage: ShaderStage): SurfaceLayer {
+  const layer: SurfaceLayer = {
+    texture: stage.map,
+    additive:
+      stage.blendSource === 'gl_one'
+      && (stage.blendDest === 'gl_one' || stage.blendDest === 'gl_src_alpha'),
+    scale: [1, 1],
+    scroll: [0, 0],
+    turb: null,
+    tint: stage.rgbConst,
+    alphaWave: stage.alphaWave,
+  };
+
+  for (const mod of stage.tcMods) {
+    const parts = mod.split(/\s+/);
+    const values = parts.slice(1).map(Number);
+    if (parts[0] === 'scale' && values.length >= 2 && values.every(Number.isFinite)) {
+      layer.scale = [values[0] || 1, values[1] || 1];
+    }
+    if (parts[0] === 'scroll' && values.length >= 2 && values.every(Number.isFinite)) {
+      layer.scroll = [values[0] || 0, values[1] || 0];
+    }
+    // tcMod turb <base> <amplitude> <phase> <frequence>
+    if (parts[0] === 'turb' && values.length >= 4 && values.slice(0, 4).every(Number.isFinite)) {
+      layer.turb = {
+        base: values[0],
+        amplitude: values[1],
+        phase: values[2],
+        frequency: values[3],
+      };
+    }
+  }
+  return layer;
+}
+
+/** Onde de deformation de la surface : deformVertexes wave. */
+function readDeformWave(deforms: string[]): ShaderSummary['deformWave'] {
+  for (const deform of deforms) {
+    const parts = deform.split(/\s+/);
+    if (parts[0] !== 'wave') continue;
+    const division = Number(parts[1]);
+    const values = parts.slice(3).map(Number);
+    if (!Number.isFinite(division) || values.length < 4 || !values.slice(0, 4).every(Number.isFinite)) {
+      continue;
+    }
+    return {
+      // Une division nulle ferait une onde infinie : le jeu la traite comme un.
+      division: division || 1,
+      base: values[0],
+      amplitude: values[1],
+      phase: values[2],
+      frequency: values[3],
+    };
+  }
+  return null;
 }
 
 /** Table des shaders d'une carte, indexee par nom. */

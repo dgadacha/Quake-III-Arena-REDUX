@@ -83,7 +83,7 @@ PRIORITIES: dict[str, Priority] = {
     'textures/gothic_trim/pitted_rust3': Priority(
         engine='lanczos',
         base=1024,
-        maps=2048,
+        maps=1024,
         kind=MaterialType.METAL,
         roughness=(0.38, 0.86),
         variation=0.18,
@@ -99,7 +99,7 @@ PRIORITIES: dict[str, Priority] = {
     'textures/gothic_wall/streetbricks10': Priority(
         engine='lanczos',
         base=1024,
-        maps=2048,
+        maps=1024,
         kind=MaterialType.STONE,
         roughness=(0.62, 0.92),
         variation=0.14,
@@ -120,7 +120,7 @@ PRIORITIES: dict[str, Priority] = {
     'textures/gothic_block/blocks15': Priority(
         engine='lanczos',
         base=1024,
-        maps=2048,
+        maps=1024,
         kind=MaterialType.STONE,
         roughness=(0.6, 0.9),
         variation=0.16,
@@ -163,7 +163,7 @@ PRIORITIES: dict[str, Priority] = {
     'textures/gothic_floor/q1metal7_99': Priority(
         engine='esrgan',
         base=1024,
-        maps=2048,
+        maps=1024,
         kind=MaterialType.METAL,
         roughness=(0.28, 0.82),
         variation=0.26,
@@ -176,7 +176,7 @@ PRIORITIES: dict[str, Priority] = {
     'textures/gothic_wall/iron01_e': Priority(
         engine='lanczos',
         base=1024,
-        maps=2048,
+        maps=1024,
         kind=MaterialType.METAL,
         roughness=(0.22, 0.62),
         variation=0.2,

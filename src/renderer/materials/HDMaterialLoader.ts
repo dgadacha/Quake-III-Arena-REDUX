@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { readBlockTexture, supportsBlockTextures } from './CompressedMaps';
 
 /**
  * Materiaux HD produits par la chaine hors ligne.
@@ -12,13 +13,30 @@ import * as THREE from 'three';
  * surfaces n'est ni retelechargee ni redecodee vingt fois.
  */
 
+/**
+ * Cartes qu'une surface peut porter. Occlusion, rugosite et metal tiennent
+ * dans la seule carte « orm », un canal chacun : separees, ces trois images a
+ * un seul canal arrivaient en RGBA et occupaient la moitie de la memoire
+ * video de la carte.
+ */
+export type MapKey = 'baseColor' | 'normal' | 'orm' | 'emissive' | 'height';
+
 /** Une entree du manifeste, telle que la chaine l'ecrit. */
 export interface HDMaterialEntry {
   type: string;
   resolution: number;
   sourceResolution: number;
+  /** Largeur et hauteur de la texture d'origine, et de la version produite. */
+  sourceSize?: [number, number];
+  size?: [number, number];
   engine: string;
-  maps: Partial<Record<'baseColor' | 'normal' | 'roughness' | 'metalness' | 'ao' | 'emissive' | 'height', string>>;
+  maps: Partial<Record<MapKey, string>>;
+  /**
+   * Memes cartes, en blocs compresses. Le jeu les prefere quand la carte
+   * graphique sait les lire : un octet par pixel au lieu de quatre, et rien a
+   * decoder au chargement.
+   */
+  compressed?: Partial<Record<MapKey, string>>;
   /** Part metallique constante, ou moins un quand une carte la porte. */
   metalness: number;
   normalStrength: number;
@@ -38,13 +56,17 @@ export interface HDMaterialEntry {
   };
 }
 
-/** Cartes chargees, pretes a etre posees sur un materiau. */
+/**
+ * Cartes chargees, pretes a etre posees sur un materiau.
+ *
+ * La rugosite, le metal et l'occlusion sont la meme texture : Three lit le
+ * rouge pour l'occlusion, le vert pour la rugosite et le bleu pour le metal,
+ * et c'est dans cet ordre que la chaine les a empilees.
+ */
 export interface HDMaterialMaps {
   map: THREE.Texture;
   normalMap: THREE.Texture | null;
-  roughnessMap: THREE.Texture | null;
-  metalnessMap: THREE.Texture | null;
-  aoMap: THREE.Texture | null;
+  surfaceMap: THREE.Texture | null;
   emissiveMap: THREE.Texture | null;
   metalness: number;
   normalStrength: number;
@@ -64,6 +86,8 @@ export class HDMaterialLibrary {
   private readonly materials = new Map<string, Promise<HDMaterialMaps | null>>();
   private readonly loader = new THREE.TextureLoader();
   private anisotropy = 1;
+  /** Vrai quand la carte graphique lit les blocs compresses. */
+  private blocks = false;
 
   /** Nombre de materiaux disponibles, une fois le manifeste lu. */
   get size(): number {
@@ -76,6 +100,18 @@ export class HDMaterialLibrary {
 
   setAnisotropy(value: number): void {
     this.anisotropy = Math.max(1, value);
+  }
+
+  /**
+   * Declare le rendu, pour savoir si les cartes compressees sont lisibles. A
+   * defaut, les PNG font le travail : la chaine ecrit toujours les deux.
+   */
+  setRenderer(renderer: THREE.WebGLRenderer): void {
+    this.blocks = supportsBlockTextures(renderer);
+  }
+
+  get compressionAvailable(): boolean {
+    return this.blocks;
   }
 
   /**
@@ -116,22 +152,18 @@ export class HDMaterialLibrary {
   }
 
   private async build(entry: HDMaterialEntry): Promise<HDMaterialMaps | null> {
-    const [map, normalMap, roughnessMap, metalnessMap, aoMap, emissiveMap] = await Promise.all([
-      this.texture(entry.maps.baseColor, THREE.SRGBColorSpace),
-      this.texture(entry.maps.normal, THREE.NoColorSpace),
-      this.texture(entry.maps.roughness, THREE.NoColorSpace),
-      this.texture(entry.maps.metalness, THREE.NoColorSpace),
-      this.texture(entry.maps.ao, THREE.NoColorSpace),
-      this.texture(entry.maps.emissive, THREE.SRGBColorSpace),
+    const [map, normalMap, surfaceMap, emissiveMap] = await Promise.all([
+      this.texture(entry, 'baseColor', THREE.SRGBColorSpace),
+      this.texture(entry, 'normal', THREE.NoColorSpace),
+      this.texture(entry, 'orm', THREE.NoColorSpace),
+      this.texture(entry, 'emissive', THREE.SRGBColorSpace),
     ]);
     if (!map) return null;
 
     return {
       map,
       normalMap,
-      roughnessMap,
-      metalnessMap,
-      aoMap,
+      surfaceMap,
       emissiveMap,
       metalness: entry.metalness,
       normalStrength: entry.normalStrength,
@@ -140,23 +172,35 @@ export class HDMaterialLibrary {
     };
   }
 
-  private texture(path: string | undefined, colorSpace: THREE.ColorSpace): Promise<THREE.Texture | null> {
+  private texture(
+    entry: HDMaterialEntry,
+    key: MapKey,
+    colorSpace: THREE.ColorSpace,
+  ): Promise<THREE.Texture | null> {
+    const packed = this.blocks ? entry.compressed?.[key] : undefined;
+    const path = packed ?? entry.maps[key];
     if (!path) return Promise.resolve(null);
     const cached = this.textures.get(path);
     if (cached) return cached;
 
-    const pending = this.loader
-      .loadAsync(path)
+    const pending = (packed ? this.blockTexture(packed) : this.loader.loadAsync(path))
       .then((texture) => {
+        if (!texture) return null;
         // Les UV BSP ont leur origine en haut, comme nos DataTexture source.
         // TextureLoader inverse Y par defaut, ce qui retournait les versions
         // HD et desalignait les motifs avec l'eclairage cuit.
-        texture.flipY = false;
-        texture.colorSpace = colorSpace;
+        // Les blocs compresses portent deja leur orientation et leur espace
+        // de couleur ; le PNG, lui, arrive retourne et sans espace declare.
+        if (!packed) {
+          texture.flipY = false;
+          texture.colorSpace = colorSpace;
+        }
         texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
         texture.minFilter = THREE.LinearMipmapLinearFilter;
         texture.magFilter = THREE.LinearFilter;
-        texture.generateMipmaps = true;
+        // Les niveaux d'une texture compressee sont dans le fichier : la carte
+        // graphique ne sait pas les calculer.
+        texture.generateMipmaps = !packed;
         texture.anisotropy = this.anisotropy;
         /*
          * Toutes ces cartes suivent les coordonnees de la texture diffuse. Il
@@ -171,6 +215,17 @@ export class HDMaterialLibrary {
 
     this.textures.set(path, pending);
     return pending;
+  }
+
+  /** Lit un fichier de blocs compresses ecrit par la chaine de textures. */
+  private async blockTexture(path: string): Promise<THREE.Texture | null> {
+    try {
+      const response = await fetch(path);
+      if (!response.ok) return null;
+      return readBlockTexture(await response.arrayBuffer());
+    } catch {
+      return null;
+    }
   }
 
   dispose(): void {

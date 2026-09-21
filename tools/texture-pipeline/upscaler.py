@@ -28,7 +28,7 @@ import numpy as np
 
 from PIL import Image
 
-from common import gaussian_blur, guided_filter, luminance, resize, save_image
+from common import Size, dimensions, gaussian_blur, guided_filter, luminance, resize, save_image
 
 ENGINES = ('lanczos', 'esrgan')
 
@@ -59,16 +59,17 @@ def available_engines() -> list[str]:
     return engines
 
 
-def upscale(image: np.ndarray, size: int, engine: str = 'lanczos') -> np.ndarray:
-    """Agrandit une image carree vers le cote demande."""
-    if image.shape[0] >= size:
-        return resize(image, size)
+def upscale(image: np.ndarray, size: Size, engine: str = 'lanczos') -> np.ndarray:
+    """Agrandit une image vers la taille demandee, carree ou non."""
+    width, height = dimensions(size)
+    if image.shape[1] >= width and image.shape[0] >= height:
+        return resize(image, (width, height))
     if engine == 'esrgan' and binary():
-        return _esrgan(image, size)
-    return _lanczos(image, size)
+        return _esrgan(image, (width, height))
+    return _lanczos(image, (width, height))
 
 
-def _lanczos(image: np.ndarray, size: int) -> np.ndarray:
+def _lanczos(image: np.ndarray, size: Size) -> np.ndarray:
     """
     Rechantillonnage Lanczos, puis restitution du detail.
 
@@ -92,7 +93,7 @@ def _lanczos(image: np.ndarray, size: int) -> np.ndarray:
     return np.clip(base + shaped[..., None] * 0.75, 0.0, 1.0)
 
 
-def _esrgan(image: np.ndarray, size: int) -> np.ndarray:
+def _esrgan(image: np.ndarray, size: Size) -> np.ndarray:
     """
     Passe par Real-ESRGAN, puis ramene a la taille demandee.
 
@@ -106,7 +107,10 @@ def _esrgan(image: np.ndarray, size: int) -> np.ndarray:
     if not tool:
         return _lanczos(image, size)
 
-    source_size = image.shape[0]
+    width, height = dimensions(size)
+    # Le facteur est choisi sur l'axe qui grandit le plus : un seul passage du
+    # reseau quand deux suffisent, deux quand la texture doit quadrupler.
+    growth = max(width / image.shape[1], height / image.shape[0])
     padded = np.pad(image, ((OVERLAP, OVERLAP), (OVERLAP, OVERLAP), (0, 0)), mode='wrap')
 
     with tempfile.TemporaryDirectory() as directory:
@@ -114,7 +118,7 @@ def _esrgan(image: np.ndarray, size: int) -> np.ndarray:
         target = Path(directory) / 'out.png'
         save_image(padded, source)
 
-        factor = 4 if size / source_size > 2 else 2
+        factor = 4 if growth > 2 else 2
         try:
             subprocess.run(
                 [
@@ -140,16 +144,30 @@ def _esrgan(image: np.ndarray, size: int) -> np.ndarray:
     return resize(enlarged, size)
 
 
-def target_size(source_size: int) -> int:
+def target_size(width: int, height: int) -> tuple[int, int]:
     """
-    Taille visee. Le cahier fixe un rapport de quatre, plafonne : toutes les
-    textures n'ont pas besoin de 4K, et une plaque de 128 pixels n'a pas quatre
-    fois plus de detail a raconter parce qu'on l'agrandit huit fois.
+    Taille visee, dans le rapport de la texture d'origine.
+
+    La carte plaque ses textures a deux texels par unite du monde : un facteur
+    de quatre porte donc une surface a huit texels par unite, de quoi rester
+    nette a quelques metres. De plus pres il en faut le double, et les petites
+    textures l'obtiennent pour presque rien : un trim de 64 par 256 agrandi
+    huit fois tient dans un million de pixels, la ou une plaque de 256 carres
+    en demanderait quatre.
+
+    Le plafond est sur le cote le plus long. Une texture deja grande n'est pas
+    agrandie au-dela : elle n'a pas huit fois plus de detail a raconter parce
+    qu'on l'etire.
     """
-    if source_size <= 64:
-        return 256
-    if source_size <= 128:
-        return 512
-    if source_size <= 256:
-        return 1024
-    return 2048
+    factor = 8 if width * height <= SMALL_SOURCE else 4
+    target_width, target_height = width * factor, height * factor
+    limit = min(1.0, CEILING / max(target_width, target_height))
+    return max(1, int(target_width * limit)), max(1, int(target_height * limit))
+
+
+# Au-dela de cette surface, une texture n'est plus agrandie que quatre fois :
+# le detail gagne ne paierait pas la memoire qu'il coute.
+SMALL_SOURCE = 128 * 128
+
+# Cote le plus long accepte pour une carte.
+CEILING = 2048

@@ -52,6 +52,7 @@ export async function loadBspLevel(
   const built = await buildWorld(map, shaders, textures, {
     hdMaterials: settings.hdMaterials,
     gridSpecular: settings.gridSpecular,
+    microDetail: settings.microDetail,
     patchLevel: settings.patchLevel,
     // L'eclairage indirect de Three passe par la loi de Lambert : sans ce
     // facteur, les lightmaps ressortent trois fois trop sombres.

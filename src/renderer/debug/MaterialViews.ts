@@ -314,15 +314,18 @@ export class MaterialDebug {
       case 'roughness':
         flat.map = source.roughnessMap;
         // Sans carte, la valeur constante est affichee en gris.
-        if (!flat.map) flat.color.setScalar(source.roughness);
+        if (flat.map) isolateChannel(flat, 1);
+        else flat.color.setScalar(source.roughness);
         break;
       case 'metalness':
         flat.map = source.metalnessMap;
-        if (!flat.map) flat.color.setScalar(source.metalness);
+        if (flat.map) isolateChannel(flat, 2);
+        else flat.color.setScalar(source.metalness);
         break;
       case 'ao':
         flat.map = source.aoMap;
-        if (!flat.map) flat.color.setScalar(1);
+        if (flat.map) isolateChannel(flat, 0);
+        else flat.color.setScalar(1);
         break;
       case 'lightmap':
         flat.map = source.lightMap;
@@ -343,4 +346,27 @@ export class MaterialDebug {
     }
     return flat;
   }
+}
+
+
+/**
+ * Affiche un seul canal d'une carte de surface.
+ *
+ * L'occlusion, la rugosite et le metal sont empaquetees dans une meme texture,
+ * un canal chacune. Les montrer telles quelles donnerait une image en couleurs
+ * dont on ne lirait rien : chaque vue n'affiche donc que son canal, en gris.
+ */
+function isolateChannel(material: THREE.MeshBasicMaterial, channel: 0 | 1 | 2): void {
+  const mask = new THREE.Vector3(channel === 0 ? 1 : 0, channel === 1 ? 1 : 0, channel === 2 ? 1 : 0);
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.channelMask = { value: mask };
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\n        uniform vec3 channelMask;')
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        diffuseColor.rgb = vec3(dot(diffuseColor.rgb, channelMask));`,
+      );
+  };
+  material.customProgramCacheKey = () => `isolate:${channel}`;
 }

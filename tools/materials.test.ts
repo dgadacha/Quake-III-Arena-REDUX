@@ -36,22 +36,31 @@ assert.equal(animated.material.side, THREE.DoubleSide);
 assert.equal(await animatedEmissive({ ...summary, additive: false }, library), null);
 console.log('PASS animated flames: blending, wraparound, continuous emission, additive depth');
 
+const surfaceMap = new THREE.Texture();
 const hd = {
   map: new THREE.Texture(), normalMap: new THREE.DataTexture(null, 2048, 1024),
-  roughnessMap: new THREE.Texture(), metalnessMap: null, aoMap: null, emissiveMap: null,
+  surfaceMap, emissiveMap: null,
   metalness: 0.9, normalStrength: 0.55, roughnessMultiplier: 1,
-  entry: { type: 'metal' },
+  entry: { type: 'metal', sourceSize: [256, 256] },
 } as HDMaterialMaps;
 const options = {
   metadata: classifySurface('textures/gothic_floor/q1metal7_99', null, 0, 0),
   texture: null, glow: null, lightMap: new THREE.Texture(), lightMapIntensity: Math.PI,
-  vertexLit: false, vertexLightIntensity: 1, normalScale: 1,
+  vertexLit: false, vertexLightIntensity: 1, normalScale: 1, microDetail: 0,
 };
 const redux = createWorldMaterial({ ...options, hd });
 const original = createWorldMaterial(options);
 assert.ok(redux.normalScale.x > redux.normalScale.y);
 assert.ok(redux.roughness < original.roughness);
 assert.ok(redux.metalness <= 0.3);
+/*
+ * Une seule texture porte l'occlusion, la rugosite et le metal : Three lit un
+ * canal par propriete, et les trois creneaux doivent donc pointer sur elle.
+ */
+assert.equal(redux.roughnessMap, surfaceMap);
+assert.equal(redux.metalnessMap, surfaceMap);
+assert.equal(redux.aoMap, surfaceMap);
+assert.equal(original.aoMap, null);
 const compile = redux.onBeforeCompile;
 const key = redux.customProgramCacheKey();
 const mesh = new THREE.Mesh(new THREE.PlaneGeometry(), redux);
@@ -84,3 +93,80 @@ assert.equal(grid.direction.minFilter, THREE.LinearFilter);
 assert.deepEqual([...grid.direction.image.data.slice(4, 7)], [128, 128, 128]);
 grid.dispose();
 console.log('PASS light grid: aligned texel centers, continuous directions, neutral solid cells');
+
+
+/*
+ * Micro-relief : il ne se pose que sur une surface qui a une normale a
+ * incliner, et sa frequence suit la taille de la texture d'origine, pour que
+ * le grain garde la meme echelle d'un mur a l'autre.
+ */
+const grained = createWorldMaterial({ ...options, hd, microDetail: 0.5 });
+assert.ok(grained.customProgramCacheKey().includes('microDetail'));
+const grainedShader = {
+  uniforms: {},
+  vertexShader: '#include <common>\n#include <project_vertex>',
+  fragmentShader:
+    '#include <common>\nvoid main() {\n#include <map_fragment>\n'
+    + '#include <normal_fragment_maps>\n#include <lights_fragment_maps>\n}',
+};
+grained.onBeforeCompile(grainedShader as never, {} as THREE.WebGLRenderer);
+assert.ok(grainedShader.fragmentShader.includes('microSlope'));
+assert.ok((grainedShader.uniforms as { detailTiles: { value: number } }).detailTiles.value > 1);
+assert.ok(!createWorldMaterial({ ...options, microDetail: 0.5 }).customProgramCacheKey().includes('microDetail'));
+console.log('PASS micro relief: pose sur une normale, frequence tiree de la source');
+
+/*
+ * Lave : tout son mouvement vient du script du jeu. Les deux couches, leurs
+ * echelles, leur teinte et le battement de leur opacite doivent traverser le
+ * lecteur de scripts jusqu'au materiau.
+ */
+const lavaSummary = summarizeShader(parseShaderScript(`textures/liquids/lavahelldark
+{
+surfaceparm lava
+cull disable
+deformVertexes wave 1 sin 0.01 0.03 0 0.2
+q3map_surfacelight 100
+{
+map textures/liquids/lavahell3.tga
+tcMod scale 0.1 0.1
+tcMod scroll -0.01 -0.01
+}
+{
+map textures/liquids/lavahell3.tga
+blendfunc add
+rgbGen const ( 0.745098 0.321569 0.180392 )
+tcMod scale -0.25 -0.25
+alphaGen wave sin 0.5 0.5 0 0.1
+}
+}`)[0]);
+assert.equal(lavaSummary.layers.length, 2);
+assert.deepEqual(lavaSummary.layers[0].scale, [0.1, 0.1]);
+assert.deepEqual(lavaSummary.layers[0].scroll, [-0.01, -0.01]);
+assert.ok(lavaSummary.layers[1].additive);
+assert.deepEqual(lavaSummary.layers[1].scale, [-0.25, -0.25]);
+assert.equal(lavaSummary.layers[1].tint?.[0], 0.745098);
+assert.equal(lavaSummary.layers[1].alphaWave?.frequency, 0.1);
+assert.equal(lavaSummary.deformWave?.amplitude, 0.03);
+
+const lavaMaterial = createWorldMaterial({
+  ...options,
+  metadata: classifySurface('textures/liquids/lavahelldark', lavaSummary, 0, 0),
+  texture: { map: new THREE.Texture(), normalMap: null, roughnessMap: null, hasAlpha: false },
+  microDetail: 0,
+});
+assert.ok(lavaMaterial.customProgramCacheKey().includes('lava'));
+const lavaShader = {
+  uniforms: {},
+  vertexShader: '#include <common>\n#include <begin_vertex>',
+  fragmentShader:
+    '#include <common>\nvoid main() {\n#include <map_fragment>\n'
+    + '#include <normal_fragment_maps>\n#include <emissivemap_fragment>\n}',
+};
+lavaMaterial.onBeforeCompile(lavaShader as never, {} as THREE.WebGLRenderer);
+const lavaUniforms = lavaShader.uniforms as Record<string, { value: { x: number } }>;
+assert.deepEqual([lavaUniforms.lavaScale0.value.x, lavaUniforms.lavaScale1.value.x], [0.1, -0.25]);
+assert.ok(Math.abs(lavaUniforms.lavaTint1.value.x - 0.745098) < 1e-6);
+// Les fonctions lisent la texture : elles doivent venir apres sa declaration.
+assert.ok(lavaShader.fragmentShader.indexOf('lavaLayer(vec2') < lavaShader.fragmentShader.indexOf('void main'));
+assert.ok(lavaShader.fragmentShader.includes('totalEmissiveRadiance = lavaColor'));
+console.log('PASS lave: deux couches, teinte et battement lus dans le script');
