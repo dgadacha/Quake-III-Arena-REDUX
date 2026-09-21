@@ -1,0 +1,21 @@
+node_modules
+dist
+.DS_Store
+
+# Donnees du jeu : elles restent sur votre machine.
+# Le dossier entier : il pointe vers votre installation du jeu.
+public/data/*
+!public/data/.gitkeep
+reference/
+
+# Modeles haute definition : lourds, ils restent hors du depot.
+public/models/*
+!public/models/.gitkeep
+
+# Materiaux HD produits depuis les donnees du joueur : derives du jeu, donc
+# jamais dans le depot.
+public/generated/
+
+# Binaire d agrandissement telecharge, avec ses modeles : outil externe, pas
+# du code du projet.
+tools/bin/

@@ -1,0 +1,21 @@
+{
+  "name": "quake-redux",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5213 --strictPort",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 5213 --strictPort",
+    "check": "tsc --noEmit",
+    "textures:generate": "python3 tools/texture-pipeline/index.py"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  },
+  "dependencies": {
+    "@types/three": "^0.169.0",
+    "three": "^0.169.0"
+  }
+}

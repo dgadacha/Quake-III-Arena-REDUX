@@ -1,0 +1,310 @@
+/*
+ * HUD de jeu. Les elements se rangent dans les coins d'une zone de securite en
+ * pourcentage : aucune coordonnee absolue, donc aucune surprise en tres large
+ * ou en 4K. Le centre reste vide, c'est la que le joueur vise.
+ */
+
+.ui {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--ui-font);
+  opacity: var(--ui-hud-opacity);
+  transition: opacity var(--ui-normal) ease;
+}
+
+.ui--hidden {
+  opacity: 0;
+}
+
+.ui__safe {
+  position: absolute;
+  inset: var(--ui-safe-y) var(--ui-safe-x);
+}
+
+.ui__zone {
+  position: absolute;
+  display: flex;
+  gap: 18px;
+  transform: scale(var(--ui-hud-scale));
+}
+
+.ui__zone--top-left {
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+
+.ui__zone--top-center {
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%) scale(var(--ui-hud-scale));
+  transform-origin: top center;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ui__zone--top-right {
+  top: 0;
+  right: 0;
+  transform-origin: top right;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.ui__zone--center {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+}
+
+.ui__zone--bottom-left {
+  bottom: 0;
+  left: 0;
+  transform-origin: bottom left;
+  align-items: flex-end;
+}
+
+.ui__zone--bottom-center {
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%) scale(var(--ui-hud-scale));
+  transform-origin: bottom center;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ui__zone--bottom-right {
+  bottom: 0;
+  right: 0;
+  transform-origin: bottom right;
+  align-items: flex-end;
+}
+
+/* Mode de mise au point : la zone de securite et les composants se voient. */
+.ui--debug .ui__safe {
+  outline: 1px dashed rgba(255, 106, 31, 0.5);
+}
+
+.ui--debug .ui__zone > * {
+  outline: 1px solid rgba(111, 183, 255, 0.4);
+}
+
+/* Panneau : un fond sombre, un filet, et un coin coupe. Jamais d'arrondi. */
+.hud-panel {
+  position: relative;
+  background: var(--ui-panel);
+  border: var(--ui-line) solid var(--ui-panel-edge);
+  padding: 8px 13px;
+  /*
+   * Le flou derriere le panneau detache les chiffres d'un decor charge. Il
+   * coute cher sur certaines machines : le reglage « flou des panneaux » le
+   * retire sans rien changer d'autre.
+   */
+  backdrop-filter: blur(4px);
+  /* Coin coupe en biais : la silhouette dit industriel sans decoration. */
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+}
+
+:root[data-hud-blur='false'] .hud-panel {
+  backdrop-filter: none;
+  background: rgba(10, 12, 16, 0.85);
+}
+
+.hud-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.hud-stat__value {
+  font-family: var(--ui-font-data);
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-health);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+
+.hud-stat__label {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ui-text-dim);
+}
+
+.hud-stat--armor .hud-stat__value {
+  font-size: 25px;
+  color: var(--ui-armor);
+}
+
+.hud-stat--warning .hud-stat__value {
+  color: var(--ui-warning);
+}
+
+.hud-stat--critical .hud-stat__value {
+  color: var(--ui-danger);
+  animation: hud-pulse 900ms ease-in-out infinite;
+}
+
+/* Le battement reste contenu : l'interface ne doit pas clignoter. */
+@keyframes hud-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.68;
+  }
+}
+
+:root[data-reduced-motion='true'] .hud-stat--critical .hud-stat__value {
+  animation: none;
+}
+
+.hud-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+/* Munitions : le nombre d'abord, le nom de l'arme en second. */
+.hud-ammo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.hud-ammo__value {
+  font-family: var(--ui-font-data);
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-text);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+
+.hud-ammo--low .hud-ammo__value {
+  color: var(--ui-warning);
+  animation: hud-pulse 900ms ease-in-out infinite;
+}
+
+.hud-ammo--empty .hud-ammo__value {
+  color: var(--ui-danger);
+}
+
+.hud-ammo__weapon {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ui-text-dim);
+}
+
+/* Score et chronometre, en haut a droite. */
+.hud-match {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+
+.hud-match__time {
+  font-family: var(--ui-font-data);
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-text);
+  letter-spacing: 0.04em;
+}
+
+.hud-match__score {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.hud-match__score b {
+  font-family: var(--ui-font-data);
+  font-size: 18px;
+  color: var(--ui-accent);
+}
+
+.hud-match__label {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ui-text-dim);
+}
+
+/* Reticule : dessine en filets fins, taille et ecart pilotes par les reglages. */
+.hud-crosshair {
+  position: relative;
+  width: 64px;
+  height: 64px;
+}
+
+.hud-crosshair__part {
+  position: absolute;
+  background: currentColor;
+}
+
+.hud-crosshair--outline .hud-crosshair__part {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.85);
+}
+
+/* Barre d'armes : elle apparait au changement puis s'effface. */
+.hud-weapons {
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity var(--ui-normal) ease;
+  margin-bottom: 10px;
+}
+
+.hud-weapons--visible {
+  opacity: 1;
+}
+
+.hud-weapon {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--ui-panel);
+  border: var(--ui-line) solid var(--ui-panel-edge);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ui-text-faint);
+}
+
+.hud-weapon--owned {
+  color: var(--ui-text-dim);
+}
+
+.hud-weapon--active {
+  color: var(--ui-text);
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+.hud-weapon__slot {
+  font-family: var(--ui-font-data);
+  color: var(--ui-text-faint);
+}
+
+/* Vitesse : discrete, sous le centre, pour juger un enchainement de sauts. */
+.hud-speed {
+  font-family: var(--ui-font-data);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(236, 238, 242, 0.7);
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
+  margin-bottom: 6px;
+}
