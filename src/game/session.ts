@@ -409,6 +409,28 @@ export class Session {
    * meme position, la meme orientation et le meme champ de vision : c'est la
    * seule facon de comparer deux reglages.
    */
+  /**
+   * Ce que la vue rencontre a un point de l'ecran, en coordonnees de moins un
+   * a un. Sert a nommer une surface dont on se demande ce qu'elle est.
+   */
+  pick(x = 0, y = 0): { name: string; distance: number; material: string } | null {
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(x, y), this.camera);
+    raycaster.far = 8000;
+    const hits = raycaster.intersectObjects(this.scene.children, true);
+    for (const hit of hits) {
+      const mesh = hit.object as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.visible) continue;
+      const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      return {
+        name: mesh.name || mesh.type,
+        distance: Math.round(hit.distance),
+        material: (material as THREE.Material)?.type ?? '',
+      };
+    }
+    return null;
+  }
+
   /** Ce que les textures de la carte affichee occupent en memoire video. */
   textureBudget() {
     return measureTextureBudget(this.scene);

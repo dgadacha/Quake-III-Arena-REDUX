@@ -92,6 +92,13 @@ export class BspVisibility {
       entry.active.set(entry.source);
       entry.attribute.needsUpdate = true;
       entry.mesh.geometry.setDrawRange(0, entry.source.length);
+      /*
+       * Un maillage dont aucune face n'etait visible avait ete retire du
+       * rendu : le remettre a l'affichage fait partie du travail. Sans cela,
+       * la capture des sondes de reflet, qui passe par ici, refletait un decor
+       * amoindri de tout ce que le joueur ne voyait pas a cet instant.
+       */
+      entry.mesh.visible = true;
     }
     this.drawnFaces = this.map.faces.length;
   }

@@ -64,6 +64,8 @@ session.onStats = (stats) => overlay.updateStats(stats);
   luminance: (samples = 320) => session.histogram(samples),
   weapon: () => session.measureViewModel(),
   textures: () => session.textureBudget(),
+  /** Nomme la surface visee a un point de l'ecran, de moins un a un. */
+  pick: (x = 0, y = 0) => session.pick(x, y),
   place: (x: number, y: number, z: number, yaw = 0, pitch = 0) => session.place(x, y, z, yaw, pitch),
   /**
    * Panneau detaille : les soixante vis de reglage du rendu, etalonnage

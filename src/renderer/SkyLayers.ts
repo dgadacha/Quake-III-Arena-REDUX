@@ -124,26 +124,29 @@ export async function createSkyLayerMaterial(
       void main() {
         vec3 direction = normalize(vWorldPosition - viewer);
         /*
-         * Coordonnees prises sur la sphere du regard : un tour complet en
-         * longitude, un demi-tour en latitude. Une projection sur un plan
-         * paraissait plus proche du dome d'origine, mais elle divise par la
-         * composante verticale : au ras de l'horizon les coordonnees partent a
-         * l'infini et le ciel devient noir, ce qui se voyait sur tout le
-         * pourtour des cartes ouvertes.
+         * Projection des nuages, telle que le jeu la calcule.
+         *
+         * Le ciel n'est pas une sphere : c'est une calotte tres aplatie, une
+         * sphere de quatre mille unites de rayon dont le centre est enfonce
+         * sous la carte, et la couche de nuages se trouve a la hauteur que le
+         * script declare. Le rayon du regard est croise avec cette calotte, et
+         * les coordonnees viennent des arcs cosinus du point trouve.
+         *
+         * La difference avec une projection spherique se voit entierement a
+         * l'horizon : sur une sphere, la latitude n'avance presque plus quand
+         * on s'en approche, et les nuages s'etirent en longues bandes floues
+         * qu'on prend pour un mur manquant. Sur la calotte, le point
+         * d'intersection continue de filer loin devant, et la structure des
+         * nuages reste lisible jusqu'en bas.
          */
-        const float PI = 3.14159265;
-        vec2 base = vec2(
-          atan(direction.y, direction.x) / (2.0 * PI),
-          0.5 - asin(clamp(direction.z, -1.0, 1.0)) / PI
-        );
-        /*
-         * Densite des nuages. Les echelles du script valent pour le dome
-         * aplati du jeu ; sur une sphere complete, elles ne donnent que trois
-         * motifs sur un tour entier et laissent de larges plages vides, que
-         * l'on prend pour des trous dans le decor. Ce facteur ramene la
-         * repetition a ce que montre le jeu.
-         */
-        base *= 4.0;
+        const float radiusWorld = 4096.0;
+        float height = max(cloudHeight, 1.0);
+        // Racine de l'equation du second degre : distance jusqu'a la couche.
+        float distance = -radiusWorld * direction.z
+          + sqrt(radiusWorld * radiusWorld * direction.z * direction.z
+                 + 2.0 * radiusWorld * height + height * height);
+        vec3 hit = normalize(direction * distance + vec3(0.0, 0.0, radiusWorld));
+        vec2 base = vec2(acos(clamp(hit.x, -1.0, 1.0)), acos(clamp(hit.y, -1.0, 1.0)));
 
         // Chaque couche est posee a demi-intensite, comme le fait le jeu ;
         // sans cela, une seconde couche additive sature aussitot le ciel.

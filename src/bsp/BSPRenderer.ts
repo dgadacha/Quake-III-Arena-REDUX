@@ -1,6 +1,6 @@
 import { subdivideLava } from './liquidGeometry';
 import * as THREE from 'three';
-import { FaceType, Surface, type BspFace, type BspMap } from '../formats/bsp';
+import { Contents, FaceType, Surface, type BspFace, type BspMap } from '../formats/bsp';
 import type { ShaderLibrary } from '../formats/shader';
 import { LightmapAtlas } from './Lightmaps';
 import { tessellatePatch } from './Bezier';
@@ -115,6 +115,13 @@ function collectGroups(
 
     if (bspShader && (bspShader.surfaceFlags & (Surface.NODRAW | Surface.SKIP | Surface.HINT)) !== 0) continue;
     if (summary?.nodraw) continue;
+    /*
+     * Volume de brouillard. Le compilateur de cartes marque ces faces d'un
+     * contenu « fog » : ce ne sont pas des murs, mais les bornes d'un volume
+     * dans lequel la vue s'epaissit. Les dessiner posait leur texture en
+     * pleine piece, et on croyait a un mur manquant derriere un nuage.
+     */
+    if (bspShader && (bspShader.contents & Contents.FOG) !== 0) continue;
 
     const isSky = (bspShader && (bspShader.surfaceFlags & Surface.SKY) !== 0) || summary?.sky;
     if (isSky) {
