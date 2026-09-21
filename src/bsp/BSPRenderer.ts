@@ -379,7 +379,7 @@ export async function buildWorld(
     triangles += built.triangles;
     brushModels.push(built.group);
     root.add(built.group);
-    if (index % 8 === 0) options.onProgress?.('geometrie', index + 1, collected.length);
+    if (index % 8 === 0) options.onProgress?.('geometry', index + 1, collected.length);
   }
 
   // Les faces de ciel forment un seul maillage, sans eclairage ni brouillard.

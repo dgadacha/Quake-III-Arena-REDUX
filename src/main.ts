@@ -5,9 +5,14 @@ import { FOCUS_MAP, isFocusMap } from './game/focus';
 import { loadBspLevel } from './game/bspLevel';
 import { Session } from './game/session';
 import { Overlay, type MapEntry } from './ui/overlay';
+import { MainMenu } from './ui/menu/MainMenu';
 import { SettingsPanel } from './ui/SettingsPanel';
+import { BenchmarkScreen } from './ui/BenchmarkScreen';
 import { UIManager } from './ui/core/UIManager';
 import { createHud } from './ui/hud/Hud';
+
+/** Version affichee au bas du menu. */
+const BUILD = '0.1.0';
 
 const canvas = document.getElementById('viewport') as HTMLCanvasElement;
 const overlayRoot = document.getElementById('overlay') as HTMLElement;
@@ -20,9 +25,19 @@ createHud(ui);
 session.attachUI(ui);
 ui.setHudVisible(false);
 const settingsPanel = new SettingsPanel(overlayRoot, session.settings);
+const benchScreen = new BenchmarkScreen(overlayRoot);
+const menu = new MainMenu(overlayRoot, BUILD);
 const params = new URLSearchParams(location.search);
 /** Derniere carte jouee : un reglage de chargement demande de la reprendre. */
 let currentMap: MapEntry | null = null;
+/**
+ * Ou en est le joueur. Le menu, le jeu et le banc de mesure ne repondent pas
+ * de la meme facon aux reglages ni aux touches : c'est cet etat qui tranche,
+ * plutot que de deviner d'apres ce qui est affiche.
+ */
+let mode: 'menu' | 'game' | 'bench' | 'report' = 'menu';
+/** Un reglage a change pendant le banc : la carte doit etre reprise. */
+let reloadPending = false;
 
 interface DataManifest {
   mods: { name: string; archives: string[] }[];
@@ -48,6 +63,15 @@ session.onStats = (stats) => overlay.updateStats(stats);
   weapon: () => session.measureViewModel(),
   textures: () => session.textureBudget(),
   place: (x: number, y: number, z: number, yaw = 0, pitch = 0) => session.place(x, y, z, yaw, pitch),
+  /** Essaie un point de vue pour le fond du menu, en degres. */
+  menuView: (x: number, y: number, z: number, yaw = 0, pitch = 0) => {
+    session.leaveMenuView();
+    session.enterMenuView({
+      origin: [x, y, z],
+      yaw: (yaw * Math.PI) / 180,
+      pitch: (pitch * Math.PI) / 180,
+    });
+  },
   /**
    * Compare une carte compressee a son PNG, en la dessinant. Sans argument,
    * prend la premiere carte du manifeste qui existe dans les deux formats.
@@ -61,7 +85,7 @@ session.onStats = (stats) => overlay.updateStats(stats);
       return entry?.compressed?.baseColor && entry.maps.baseColor;
     });
     const entry = chosen ? hdMaterials.entry(chosen) : null;
-    if (!entry?.compressed?.baseColor || !entry.maps.baseColor) return 'aucune carte compressee';
+    if (!entry?.compressed?.baseColor || !entry.maps.baseColor) return 'no compressed map available';
     const report = await compareCompression(
       session.renderer.webgl,
       entry.maps.baseColor,
@@ -103,7 +127,7 @@ async function mountSource(name: string): Promise<void> {
   if (!mod) return;
 
   const mountStart = performance.now();
-  overlay.showLoading(`Montage de ${name}`);
+  overlay.showLoading(`Mounting ${name}`);
   vfs = new VirtualFileSystem();
   shaders = new ShaderLibrary();
   activeSource = name;
@@ -121,7 +145,7 @@ async function mountSource(name: string): Promise<void> {
           console.warn(`${path} ignore :`, error);
           return { path, archive: null };
         } finally {
-          overlay.setProgress(`Montage de ${name}`, ++done, mod.archives.length);
+          overlay.setProgress(`Mounting ${name}`, ++done, mod.archives.length);
         }
       }),
     ),
@@ -138,20 +162,20 @@ async function mountSource(name: string): Promise<void> {
   mountTimings.acces = HttpRangeSource.reads;
   mountTimings.total = Math.round(performance.now() - mountStart);
   console.log('montage', name, mountTimings);
-  overlay.setSources(
+  menu.setSources(
     manifest.mods.map((entry) => entry.name),
     activeSource,
   );
-  overlay.setNotes(
-    `${vfs.mounted.length} archives montees, ${shaders.count} shaders lus, ${fileCount} fichiers, ` +
-      `${(mountTimings.total / 1000).toFixed(1)} s.`,
+  menu.setNotes(
+    `${vfs.mounted.length} archives &middot; ${shaders.count} shaders &middot; ${fileCount} files`
+      .replace(/&middot;/g, '·'),
   );
-  overlay.showMenu();
+  showMenu();
 }
 
 async function loadShaderScripts(): Promise<void> {
   const scripts = vfs.listByExtension('.shader', 'scripts/');
-  overlay.setProgress('Lecture des scripts', 0, scripts.length);
+  overlay.setProgress('Reading shader scripts', 0, scripts.length);
 
   // Une seule demande pour tous les scripts : le systeme de fichiers groupe
   // les acces par archive et par position, ce qui evite des dizaines de
@@ -175,7 +199,7 @@ async function loadShaderScripts(): Promise<void> {
   }
   const parseMs = performance.now() - parseStart;
 
-  overlay.setProgress('Lecture des scripts', scripts.length, scripts.length);
+  overlay.setProgress('Reading shader scripts', scripts.length, scripts.length);
   await yieldToBrowser();
 
   mountTimings.scriptsFichiers = scripts.length;
@@ -195,19 +219,28 @@ function refreshMaps(): void {
     // La demonstration ne porte que sur une carte : le reste du catalogue
     // n'est pas propose, pour ne pas laisser croire qu'il est traite.
     .filter((entry) => isFocusMap(entry.name));
-  overlay.setMaps(entries);
+  menu.setMap(entries[0]?.name ?? null);
+  currentMap = entries[0] ?? currentMap;
 }
 
-async function playMap(entry: MapEntry): Promise<void> {
+/**
+ * Charge une carte et entre en jeu. En mode silencieux, la carte est
+ * seulement montee : c'est ce qu'il faut avant un banc de mesure, ou la vue
+ * ne doit pas passer par le jeu.
+ */
+async function playMap(entry: MapEntry, silent = false): Promise<void> {
   if (busy) return;
   busy = true;
   currentMap = entry;
   try {
-    overlay.showLoading(`Chargement de ${entry.name}`);
+    // Le menu s'efface avant le chargement : sinon il reste par-dessus la
+    // barre de progression pendant les dix secondes que prend la carte.
+    if (!silent) menu.hide();
+    overlay.showLoading(`Loading ${entry.name}`);
     await yieldToBrowser();
 
     const data = await vfs.read(entry.path);
-    if (!data) throw new Error('carte introuvable dans les archives montees');
+    if (!data) throw new Error('map not found in the mounted archives');
 
     const level = await loadBspLevel(entry.path, data, vfs, shaders, {
       settings: session.settings.current,
@@ -216,8 +249,13 @@ async function playMap(entry: MapEntry): Promise<void> {
     });
 
     session.setLevel(level);
+    session.leaveMenuView();
     session.setPaused(false);
     session.start();
+    reloadPending = false;
+    if (silent) return;
+    menu.hide();
+    mode = 'game';
     overlay.showGame();
     showHud(true);
     // Vue reproductible pour comparer les materiaux sans deplacer la camera.
@@ -229,12 +267,12 @@ async function playMap(entry: MapEntry): Promise<void> {
       session.input.requestLock();
     }
     overlay.notify(
-      `${entry.name} : ${level.map.faces.length} faces, ${level.map.brushes.length} volumes, ${level.lights.count} lampes`,
+      `${entry.name}: ${level.map.faces.length} faces, ${level.map.brushes.length} brushes, ${level.lights.count} lights`,
     );
   } catch (error) {
     console.error(error);
-    overlay.showMenu();
-    overlay.setNotes(`Echec du chargement : ${(error as Error).message}`, true);
+    showMenu();
+    menu.setNotes(`Loading failed: ${(error as Error).message}`, true);
   } finally {
     busy = false;
   }
@@ -242,13 +280,16 @@ async function playMap(entry: MapEntry): Promise<void> {
 
 function playDemo(): void {
   currentMap = null;
+  session.leaveMenuView();
+  menu.hide();
+  mode = 'game';
   session.setLevel(buildDemoArena());
   session.setPaused(false);
   session.start();
   overlay.showGame();
   showHud(true);
   session.input.requestLock();
-  overlay.notify('Arene de demonstration : aucune donnee du jeu utilisee');
+  overlay.notify('Test arena: no game data used');
 }
 
 /** Le HUD n'a de sens qu'en jeu : il disparait avec le menu. */
@@ -256,9 +297,87 @@ function showHud(visible: boolean): void {
   ui.setHudVisible(visible);
 }
 
-overlay.onDemo = () => playDemo();
-overlay.onSelectMap = (entry) => void playMap(entry);
-overlay.onSelectSource = (name) => void mountSource(name);
+menu.onSource = (name) => void mountSource(name);
+menu.onSelect = (page, entry) => {
+  if (page === 'single' && entry === 'start') void playFocusMap();
+  else if (entry === 'benchmark') void startBenchmark();
+  else if (entry === 'settings') settingsPanel.toggle();
+  else if (entry === 'arena') playDemo();
+};
+
+/**
+ * Menu a l'ecran, avec le decor rendu derriere lui quand la carte est deja
+ * montee. C'est ce qui fait le lien entre le menu et la demonstration : on
+ * voit l'arene, presque noire, avant d'y entrer.
+ */
+function showMenu(): void {
+  mode = 'menu';
+  overlay.showMenu();
+  showHud(false);
+  menu.show();
+  session.enterMenuView();
+}
+
+benchScreen.onRepeat = () => void startBenchmark();
+benchScreen.onSettings = () => settingsPanel.toggle();
+benchScreen.onMenu = () => backToMenu();
+
+/** Carte mise en avant par le menu : celle de la demonstration. */
+function focusEntry(): MapEntry {
+  const requested = params.get('map') ?? FOCUS_MAP;
+  return { path: `maps/${requested}.bsp`, name: requested, source: activeSource };
+}
+
+async function playFocusMap(): Promise<void> {
+  await playMap(currentMap ?? focusEntry());
+}
+
+/**
+ * Banc de mesure. La carte est montee si elle ne l'est pas deja, puis la
+ * camera parcourt le decor et chaque image est comptee. Rien n'est joue
+ * pendant ce temps : le resultat doit dependre des reglages, pas du joueur.
+ */
+async function startBenchmark(): Promise<void> {
+  if (busy || session.benchmarking) return;
+  settingsPanel.hide();
+
+  const entry = currentMap ?? focusEntry();
+  if (!session.currentLevel || reloadPending || currentMap?.path !== entry.path) {
+    await playMap(entry, true);
+    if (!session.currentLevel) {
+      overlay.showMenu();
+      mode = 'menu';
+      return;
+    }
+  }
+
+  mode = 'bench';
+  menu.hide();
+  session.leaveMenuView();
+  benchScreen.hide();
+  overlay.showScene();
+  showHud(false);
+
+  const report = await session.runBenchmark((info) => benchScreen.update(info));
+  benchScreen.hideRunning();
+  if (!report) {
+    backToMenu();
+    return;
+  }
+  mode = 'report';
+  benchScreen.show(report);
+  console.log('banc de mesure', report);
+}
+
+/** Retour au menu, quel que soit l'etat en cours. */
+function backToMenu(): void {
+  session.cancelBenchmark();
+  settingsPanel.hide();
+  benchScreen.hide();
+  session.input.releaseLock();
+  session.setPaused(true);
+  showMenu();
+}
 
 window.addEventListener('keydown', (event) => {
   // Outils de jugement des materiaux.
@@ -267,27 +386,37 @@ window.addEventListener('keydown', (event) => {
     const { mode, converted } = session.cycleComparison();
     const names: Record<string, string> = {
       redux: 'Quake Redux',
-      original: 'textures d\'origine',
-      split: 'image coupee : origine a gauche, refonte a droite',
+      original: 'original textures',
+      split: 'split view: original left, redux right',
     };
-    overlay.notify(`${names[mode]} (${converted} surfaces refaites)`);
+    overlay.notify(`${names[mode]} (${converted} surfaces rebuilt)`);
     return;
   }
   if (event.code === 'F7') {
     event.preventDefault();
-    overlay.notify(`carte affichee : ${session.cycleMaterialChannel()}`);
+    overlay.notify(`map channel shown: ${session.cycleMaterialChannel()}`);
     return;
   }
-  if (event.code === 'KeyM') {
-    session.input.releaseLock();
-    session.setPaused(true);
-    overlay.showMenu();
-    showHud(false);
+  // Echap pendant un essai l'interrompt : c'est la seule sortie, la souris
+  // n'etant pas prise par le jeu a ce moment.
+  if (event.code === 'Escape' && (mode === 'bench' || mode === 'report')) {
+    event.preventDefault();
+    backToMenu();
+    return;
   }
-  if (event.code === 'KeyR') session.respawn();
+  if (event.code === 'KeyM' && mode !== 'menu') {
+    backToMenu();
+    return;
+  }
+  if (event.code === 'KeyR' && mode === 'game') session.respawn();
   if (event.code === 'KeyG') {
     settingsPanel.toggle();
-    // Panneau ouvert : la souris redevient un curseur et le jeu attend.
+    /*
+     * Le panneau sert aussi depuis le menu et depuis le resultat d'un essai.
+     * La souris n'y est pas prise par le jeu : il n'y a alors ni verrou a
+     * relacher ni simulation a reprendre.
+     */
+    if (mode !== 'game') return;
     if (settingsPanel.isVisible) {
       session.input.releaseLock();
       session.setPaused(true);
@@ -301,6 +430,15 @@ window.addEventListener('keydown', (event) => {
 /** Un reglage prepare au chargement : la carte est reprise depuis le debut. */
 settingsPanel.onReloadNeeded = () => {
   if (!currentMap || busy) return;
+  /*
+   * Hors du jeu, la carte n'est pas reprise sur le champ : depuis le resultat
+   * d'un essai, cela ferait disparaitre les chiffres qu'on vient de lire. Elle
+   * sera rechargee au prochain essai ou au prochain lancement.
+   */
+  if (mode !== 'game') {
+    reloadPending = true;
+    return;
+  }
   const entry = currentMap;
   window.setTimeout(() => {
     settingsPanel.hide();
@@ -315,7 +453,7 @@ window.addEventListener('drop', async (event) => {
   const files = [...(event.dataTransfer?.files ?? [])];
   if (files.length === 0) return;
 
-  overlay.showLoading('Lecture des fichiers deposes');
+  overlay.showLoading('Reading dropped files');
   for (const file of files) {
     const name = file.name.toLowerCase();
     try {
@@ -332,20 +470,23 @@ window.addEventListener('drop', async (event) => {
   }
   await loadShaderScripts();
   refreshMaps();
-  overlay.setNotes(`${vfs.mounted.length} archives montees, ${shaders.count} shaders lus.`);
-  overlay.showMenu();
+  menu.setNotes(`${vfs.mounted.length} archives mounted, ${shaders.count} shaders read.`);
+  showMenu();
 });
 
 async function boot(): Promise<void> {
   manifest = await readManifest();
   const names = manifest.mods.map((mod) => mod.name);
-  overlay.setSources(names, names[0] ?? '');
+  menu.setSources(names, names[0] ?? '');
+  // Le menu est la des la premiere image, sur fond noir : le decor ne le
+  // rejoint qu'une fois la carte montee.
+  menu.show();
+  menu.setMap(null);
 
   if (names.length === 0) {
-    overlay.setNotes(
-      "Aucune archive detectee. Placez vos .pk3 dans public/data, lancez node tools/scan-data.mjs, ou deposez-les sur cette page. L'arene de demonstration fonctionne sans donnees.",
+    menu.setNotes(
+      'No archive detected. Put your .pk3 files in public/data, run node tools/scan-data.mjs, or drop them on this page. The test arena works without game data.',
     );
-    overlay.showMenu();
     return;
   }
 
@@ -353,10 +494,26 @@ async function boot(): Promise<void> {
   const preferred = params.get('source') ?? (names.includes('baseq3') ? 'baseq3' : names[0]);
   await mountSource(preferred);
 
-  // La carte de la demonstration se lance directement quand elle est la.
-  const requested = params.get('map') ?? FOCUS_MAP;
-  const entry = { path: `maps/${requested}.bsp`, name: requested, source: activeSource };
-  if (vfs.has(entry.path)) await playMap(entry);
+  /*
+   * Le menu s'affiche d'abord : lancer la demonstration, la mesurer ou regler
+   * le rendu sont trois entrees, et rien ne demarre sans qu'on le demande.
+   * Les outils de mise au point, eux, passent par l'adresse et veulent la
+   * carte tout de suite.
+   */
+  const entry = focusEntry();
+  if (!vfs.has(entry.path)) return;
+  currentMap = entry;
+  if (params.has('shot') || params.has('map') || params.has('play')) {
+    await playMap(entry);
+    return;
+  }
+
+  /*
+   * La carte est montee sans entrer en partie : elle sert de decor au menu, et
+   * l'entree en jeu est ensuite immediate.
+   */
+  await playMap(entry, true);
+  showMenu();
 }
 
 void boot();

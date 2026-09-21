@@ -479,6 +479,10 @@ button.source.active {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 }
 
+.screen--menu .title__logo {
+  width: min(560px, 74vw);
+}
+
 .title__logo {
   display: block;
   margin: 0 auto 14px;
@@ -494,4 +498,362 @@ button.source.active {
   to {
     opacity: 0;
   }
+}
+
+.panel--maps {
+  display: none;
+}
+
+.panel--maps.visible {
+  display: flex;
+}
+
+/* Bandeau du banc de mesure : il reste discret pendant le parcours. */
+.bench-run {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, 70vw);
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 18px;
+}
+
+.bench-run.visible {
+  display: flex;
+}
+
+.bench-run__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bench-run__fps {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.bench-run__bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.bench-run__fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+
+.bench-run__note {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+}
+
+/* Resultat : les chiffres d'abord, puis le detail par troncon et les reglages. */
+.screen--bench {
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
+.bench {
+  width: min(920px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.bench__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.bench__head h2 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.bench__map {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bench__figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.bench-figure {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.bench-figure b {
+  display: block;
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.bench-figure span {
+  display: block;
+  font-size: 12px;
+  color: var(--text);
+  margin-top: 4px;
+}
+
+.bench-figure small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.bench__graph {
+  position: relative;
+}
+
+.bench__graph svg {
+  width: 100%;
+  height: 120px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.bench-graph__line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 0.8;
+  vector-effect: non-scaling-stroke;
+}
+
+.bench-graph__average {
+  stroke: rgba(255, 255, 255, 0.3);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.bench-graph__scale {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.bench-graph__note {
+  position: absolute;
+  right: 10px;
+  bottom: 6px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.bench__columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+}
+
+.bench__block h3 {
+  margin: 0 0 10px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.bench-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.bench-row__bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.bench-row__bar div {
+  height: 100%;
+  background: var(--accent);
+}
+
+.bench-row b {
+  font-variant-numeric: tabular-nums;
+}
+
+.bench-setting {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.bench-setting span {
+  color: var(--muted);
+}
+
+
+/*
+ * Menu d'accueil, dans la mise en page du jeu d'origine : fond noir, titre en
+ * haut, entrees en capitales au centre, arc en fond, mention en bas. Le trait
+ * est refait proprement : aucune police bitmap, aucun biseau, mais le meme
+ * rouge orange et la meme lecture immediate.
+ */
+:root {
+  --menu-cold: #a32a12;
+  --menu-warm: #ff8f3a;
+}
+
+.screen--menu {
+  gap: 26px;
+  background: radial-gradient(circle at 50% 42%, #14100e 0%, #050506 72%);
+}
+
+/* Arc de fond : la signature du menu d'epoque, ici au trait et sans relief. */
+.arc {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(900px, 86vw);
+  transform: translate(-50%, -30%);
+  fill: none;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.arc path {
+  fill: url(#arcFill);
+  filter: blur(0.4px) drop-shadow(0 0 26px rgba(207, 95, 34, 0.2));
+}
+
+.entries {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.entry {
+  appearance: none;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: clamp(24px, 3.4vw, 40px);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 6px 28px;
+  line-height: 1.16;
+  /* Degrade du chaud vers le froid, comme les lettres d'origine. */
+  background-image: linear-gradient(180deg, #ffb066 0%, #e8541f 52%, #a8250c 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.6));
+  transition: filter 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+}
+
+.entry:hover,
+.entry:focus-visible {
+  outline: none;
+  transform: scale(1.03);
+  filter: drop-shadow(0 0 16px rgba(255, 143, 58, 0.55)) drop-shadow(0 2px 0 rgba(0, 0, 0, 0.6));
+}
+
+/* L'entree survolee reprend la couleur vive du jeu d'origine. */
+.entry:hover {
+  background-image: linear-gradient(180deg, #ffd9a8 0%, #ff8f3a 100%);
+}
+
+.entry:disabled {
+  cursor: default;
+  opacity: 0.35;
+  transform: none;
+  filter: none;
+}
+
+/* La carte jouee se lit sous l'entree, en petit. */
+.entry small {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: rgba(226, 150, 108, 0.75);
+  -webkit-text-fill-color: rgba(226, 150, 108, 0.75);
+}
+
+/* Entree secondaire : plus petite, elle ne concurrence pas les trois autres. */
+.entry--minor {
+  font-size: clamp(14px, 1.5vw, 18px);
+  letter-spacing: 0.16em;
+  margin-top: 10px;
+  background-image: linear-gradient(180deg, #c9672f 0%, #8d3413 100%);
+}
+
+.screen--menu .title p {
+  color: rgba(226, 150, 108, 0.7);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.screen--menu .notes {
+  position: relative;
+  color: rgba(214, 132, 88, 0.62);
+  letter-spacing: 0.04em;
+}
+
+.screen--menu .panel--maps {
+  position: relative;
 }

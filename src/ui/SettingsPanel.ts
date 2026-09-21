@@ -33,61 +33,61 @@ interface SliderRow {
 }
 
 const PRESETS: { value: PresetName; label: string }[] = [
-  { value: 'original', label: 'Origine' },
-  { value: 'low', label: 'Bas' },
-  { value: 'medium', label: 'Moyen' },
-  { value: 'high', label: 'Haut' },
+  { value: 'original', label: 'Original' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
   { value: 'ultra', label: 'Ultra' },
 ];
 
 const TOGGLES: ToggleRow[] = [
-  { key: 'hdr', label: 'Rendu en virgule flottante' },
-  { key: 'dynamicLights', label: 'Lumieres dynamiques', reload: true },
-  { key: 'shadows', label: 'Ombres', reload: true },
-  { key: 'contactShadows', label: 'Ombres de contact' },
-  { key: 'ambientOcclusion', label: 'Occlusion ambiante' },
-  { key: 'bloom', label: 'Halo lumineux' },
-  { key: 'colorGrading', label: 'Etalonnage' },
-  { key: 'fog', label: 'Brouillard' },
-  { key: 'reflections', label: 'Reflets' },
-  { key: 'particles', label: 'Particules' },
-  { key: 'decals', label: 'Impacts' },
-  { key: 'distortion', label: 'Distorsion' },
-  { key: 'motionBlur', label: 'Flou de mouvement' },
-  { key: 'cameraShake', label: 'Secousses de camera' },
-  { key: 'dynamicFov', label: 'Champ de vision variable' },
-  { key: 'weaponBob', label: "Balancement de l'arme" },
-  { key: 'weaponSway', label: "Retard de l'arme" },
-  { key: 'viewRecoil', label: 'Recul et reception' },
-  { key: 'dynamicResolution', label: 'Resolution dynamique' },
-  { key: 'hdMaterials', label: 'Materiaux HD', reload: true },
-  { key: 'deriveMaterialDetail', label: 'Relief deduit des textures', reload: true },
+  { key: 'hdr', label: 'Floating point rendering' },
+  { key: 'dynamicLights', label: 'Dynamic lights', reload: true },
+  { key: 'shadows', label: 'Shadows', reload: true },
+  { key: 'contactShadows', label: 'Contact shadows' },
+  { key: 'ambientOcclusion', label: 'Ambient occlusion' },
+  { key: 'bloom', label: 'Bloom' },
+  { key: 'colorGrading', label: 'Color grading' },
+  { key: 'fog', label: 'Fog' },
+  { key: 'reflections', label: 'Reflections' },
+  { key: 'particles', label: 'Particles' },
+  { key: 'decals', label: 'Marks on walls' },
+  { key: 'distortion', label: 'Heat distortion' },
+  { key: 'motionBlur', label: 'Motion blur' },
+  { key: 'cameraShake', label: 'Camera shake' },
+  { key: 'dynamicFov', label: 'Dynamic field of view' },
+  { key: 'weaponBob', label: 'Weapon bob' },
+  { key: 'weaponSway', label: 'Weapon sway' },
+  { key: 'viewRecoil', label: 'View recoil and landing' },
+  { key: 'dynamicResolution', label: 'Dynamic resolution' },
+  { key: 'hdMaterials', label: 'HD materials', reload: true },
+  { key: 'deriveMaterialDetail', label: 'Relief derived from textures', reload: true },
 ];
 
 const SLIDERS: SliderRow[] = [
-  { key: 'renderScale', label: 'Resolution interne', min: 0.5, max: 1.5, step: 0.05 },
-  { key: 'targetFps', label: 'Cadence visee', min: 30, max: 240, step: 10 },
-  { key: 'exposure', label: 'Exposition', min: 0.2, max: 4, step: 0.05 },
-  { key: 'whitePoint', label: 'Point blanc', min: 1, max: 12, step: 0.25 },
-  { key: 'contrast', label: 'Contraste', min: 0.6, max: 1.6, step: 0.01 },
+  { key: 'renderScale', label: 'Internal resolution', min: 0.5, max: 1.5, step: 0.05 },
+  { key: 'targetFps', label: 'Target frame rate', min: 30, max: 240, step: 10 },
+  { key: 'exposure', label: 'Exposure', min: 0.2, max: 4, step: 0.05 },
+  { key: 'whitePoint', label: 'White point', min: 1, max: 12, step: 0.25 },
+  { key: 'contrast', label: 'Contrast', min: 0.6, max: 1.6, step: 0.01 },
   { key: 'saturation', label: 'Saturation', min: 0, max: 2, step: 0.02 },
-  { key: 'brightness', label: 'Luminosite', min: -0.2, max: 0.2, step: 0.01 },
-  { key: 'shadowLift', label: 'Plancher des noirs', min: 0, max: 0.06, step: 0.002 },
-  { key: 'splitTone', label: 'Ombres froides, lumieres chaudes', min: 0, max: 2, step: 0.05 },
+  { key: 'brightness', label: 'Brightness', min: -0.2, max: 0.2, step: 0.01 },
+  { key: 'shadowLift', label: 'Black floor', min: 0, max: 0.06, step: 0.002 },
+  { key: 'splitTone', label: 'Cool shadows, warm highlights', min: 0, max: 2, step: 0.05 },
   { key: 'temperature', label: 'Temperature', min: -1, max: 1, step: 0.05 },
-  { key: 'tint', label: 'Teinte', min: -1, max: 1, step: 0.05 },
-  { key: 'bloomThreshold', label: 'Seuil du halo', min: 0.2, max: 3, step: 0.05 },
-  { key: 'bloomStrength', label: 'Force du halo', min: 0, max: 2, step: 0.05 },
-  { key: 'bloomRadius', label: 'Rayon du halo', min: 0, max: 1.5, step: 0.05 },
-  { key: 'lightmapGain', label: 'Intensite des lightmaps', min: 0.4, max: 3, step: 0.05, reload: true },
-  { key: 'lightmapOverbright', label: 'Eclaircissement des lightmaps', min: 0, max: 3, step: 1, reload: true },
-  { key: 'lightmapLift', label: 'Plancher des lightmaps', min: 0, max: 0.08, step: 0.002 },
-  { key: 'ambientGain', label: 'Ambiance', min: 0, max: 2, step: 0.05, reload: true },
-  { key: 'gridSpecular', label: 'Reflets de la grille', min: 0, max: 3, step: 0.05 },
-  { key: 'microDetail', label: 'Micro-relief', min: 0, max: 1.5, step: 0.05, reload: true },
-  { key: 'maxDynamicLights', label: 'Lumieres allumees', min: 0, max: 16, step: 1, reload: true },
-  { key: 'patchLevel', label: 'Finesse des courbes', min: 2, max: 14, step: 1, reload: true },
-  { key: 'anisotropy', label: 'Filtrage anisotrope', min: 1, max: 16, step: 1, reload: true },
+  { key: 'tint', label: 'Tint', min: -1, max: 1, step: 0.05 },
+  { key: 'bloomThreshold', label: 'Bloom threshold', min: 0.2, max: 3, step: 0.05 },
+  { key: 'bloomStrength', label: 'Bloom strength', min: 0, max: 2, step: 0.05 },
+  { key: 'bloomRadius', label: 'Bloom radius', min: 0, max: 1.5, step: 0.05 },
+  { key: 'lightmapGain', label: 'Lightmap intensity', min: 0.4, max: 3, step: 0.05, reload: true },
+  { key: 'lightmapOverbright', label: 'Lightmap overbright', min: 0, max: 3, step: 1, reload: true },
+  { key: 'lightmapLift', label: 'Lightmap floor', min: 0, max: 0.08, step: 0.002 },
+  { key: 'ambientGain', label: 'Ambient light', min: 0, max: 2, step: 0.05, reload: true },
+  { key: 'gridSpecular', label: 'Light grid reflections', min: 0, max: 3, step: 0.05 },
+  { key: 'microDetail', label: 'Micro detail', min: 0, max: 1.5, step: 0.05, reload: true },
+  { key: 'maxDynamicLights', label: 'Lights on at once', min: 0, max: 16, step: 1, reload: true },
+  { key: 'patchLevel', label: 'Curve tessellation', min: 2, max: 14, step: 1, reload: true },
+  { key: 'anisotropy', label: 'Anisotropic filtering', min: 1, max: 16, step: 1, reload: true },
 ];
 
 /*
@@ -97,12 +97,12 @@ const SLIDERS: SliderRow[] = [
  * reglages ponderent des mouvements volontairement discrets.
  */
 const WEAPON_SLIDERS: SliderRow[] = [
-  { key: 'weaponFov', label: 'Champ de vision', min: 55, max: 80, step: 1 },
-  { key: 'weaponTrimX', label: 'Ajustement lateral', min: -0.3, max: 0.3, step: 0.02 },
-  { key: 'weaponTrimY', label: 'Ajustement vertical', min: -0.3, max: 0.3, step: 0.02 },
-  { key: 'weaponBobStrength', label: 'Balancement', min: 0, max: 2, step: 0.05, percent: true },
-  { key: 'weaponSwayStrength', label: 'Retard sur la vue', min: 0, max: 2, step: 0.05, percent: true },
-  { key: 'weaponRecoilStrength', label: 'Recul', min: 0, max: 2, step: 0.05, percent: true },
+  { key: 'weaponFov', label: 'Field of view', min: 55, max: 80, step: 1 },
+  { key: 'weaponTrimX', label: 'Horizontal offset', min: -0.3, max: 0.3, step: 0.02 },
+  { key: 'weaponTrimY', label: 'Vertical offset', min: -0.3, max: 0.3, step: 0.02 },
+  { key: 'weaponBobStrength', label: 'Bob', min: 0, max: 2, step: 0.05, percent: true },
+  { key: 'weaponSwayStrength', label: 'Sway', min: 0, max: 2, step: 0.05, percent: true },
+  { key: 'weaponRecoilStrength', label: 'Recoil', min: 0, max: 2, step: 0.05, percent: true },
 ];
 
 interface ChoiceRow {
@@ -112,10 +112,10 @@ interface ChoiceRow {
 }
 
 const CHOICES: ChoiceRow[] = [
-  { key: 'antiAliasing', label: 'Anticrenelage', options: ['off', 'msaa', 'smaa', 'taa'] },
-  { key: 'shadowQuality', label: 'Qualite des ombres', options: ['off', 'low', 'medium', 'high', 'ultra'] },
-  { key: 'aoQuality', label: 'Qualite de l\'occlusion', options: ['off', 'low', 'medium', 'high', 'ultra'] },
-  { key: 'fxQuality', label: 'Qualite des effets', options: ['low', 'medium', 'high', 'ultra'] },
+  { key: 'antiAliasing', label: 'Antialiasing', options: ['off', 'msaa', 'smaa', 'taa'] },
+  { key: 'shadowQuality', label: 'Shadow quality', options: ['off', 'low', 'medium', 'high', 'ultra'] },
+  { key: 'aoQuality', label: 'Occlusion quality', options: ['off', 'low', 'medium', 'high', 'ultra'] },
+  { key: 'fxQuality', label: 'Effects quality', options: ['low', 'medium', 'high', 'ultra'] },
 ];
 
 const WEAPON_CHOICES: ChoiceRow[] = [
@@ -156,7 +156,7 @@ export class SettingsPanel {
 
     const head = document.createElement('div');
     head.className = 'settings__head';
-    head.innerHTML = '<h2>Rendu</h2>';
+    head.innerHTML = '<h2>Video</h2>';
     const presets = document.createElement('div');
     presets.className = 'sources';
     for (const preset of PRESETS) {
@@ -194,7 +194,7 @@ export class SettingsPanel {
     weapon.className = 'settings__column';
     const title = document.createElement('h3');
     title.className = 'settings__group';
-    title.textContent = 'Arme tenue en main';
+    title.textContent = 'Held weapon';
     weapon.appendChild(title);
     for (const choice of WEAPON_CHOICES) {
       weapon.appendChild(this.buildChoice(choice, String(settings[choice.key])));
@@ -208,7 +208,7 @@ export class SettingsPanel {
 
     const note = document.createElement('p');
     note.className = 'settings__note';
-    note.textContent = 'Les reglages suivis d\'une etoile prennent effet au prochain chargement de carte. Touche G pour fermer.';
+    note.textContent = 'Settings marked with a star take effect the next time a map loads. Press G to close.';
     this.root.appendChild(note);
   }
 
@@ -279,10 +279,14 @@ export class SettingsPanel {
 
 /** Noms affiches des valeurs choisies. */
 const LABELS: Record<string, string> = {
-  off: 'aucun',
-  center: 'centre',
-  right: 'droite',
-  left: 'gauche',
+  off: 'off',
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  ultra: 'ultra',
+  center: 'center',
+  right: 'right',
+  left: 'left',
 };
 
 function format(value: number): string {

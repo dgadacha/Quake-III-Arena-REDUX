@@ -32,12 +32,45 @@ import {
   updatePulses,
 } from '../renderer/materials/Q3Material';
 import { gradeFor, NEUTRAL_GRADE, type MapGrade } from '../renderer/grading/MapGrading';
+import { FOCUS_MENU_VIEW } from './focus';
 import { benchmarkShot, type BenchmarkShot } from '../renderer/debug/Benchmark';
+import { buildCameraPath } from './benchmark/CameraPath';
+import { BenchmarkRun, type BenchmarkReport } from './benchmark/BenchmarkRun';
 import { measureTextureBudget } from '../renderer/debug/TextureBudget';
 
 import { Input } from './input';
 import { pickSpawn, type Level } from './level';
 import { MoveConfig, PlayerMove, createMoveState, type MoveState } from './physics';
+
+/**
+ * Echelle de rendu de la vue du menu. Le decor y est un fond, pas une partie :
+ * il n'a pas besoin de la resolution du jeu, et l'entree en partie la rend.
+ */
+const MENU_RENDER_SCALE = 0.75;
+
+/**
+ * Etalonnage du menu : la meme intention que la carte, ramenee a une ambiance
+ * presque noire. L'exposition tombe, le contraste monte un peu, et les seules
+ * choses qui restent lisibles sont les torches et la lave.
+ */
+function menuGrade(grade: MapGrade): MapGrade {
+  return {
+    ...grade,
+    exposure: grade.exposure * 0.42,
+    contrast: grade.contrast * 1.12,
+    saturation: grade.saturation * 0.92,
+  };
+}
+
+/** Ou en est l'essai en cours, pour l'afficher pendant le parcours. */
+export interface BenchmarkProgress {
+  warmingUp: boolean;
+  progress: number;
+  elapsed: number;
+  duration: number;
+  fps: number;
+  segment: string;
+}
 
 export interface Stats extends FrameMetrics {
   /** Arme en main, affichee au joueur. */
@@ -130,6 +163,21 @@ export class Session {
   private fogKind: 'off' | 'linear' | 'exponential' = 'off';
 
   onStats: ((stats: Stats) => void) | null = null;
+
+  /**
+   * Vue du menu : la carte est rendue derriere les entrees, presque noire.
+   * L'etalonnage, l'echelle de rendu et la place de la camera sont mis de cote
+   * pendant ce temps, et rendus au jeu quand le menu se ferme.
+   */
+  private menuView: { grade: MapGrade; drift: number; view: typeof FOCUS_MENU_VIEW } | null = null;
+
+  /** Essai en cours : la camera suit un parcours et chaque image est comptee. */
+  private bench: {
+    run: BenchmarkRun;
+    finish: (report: BenchmarkReport | null) => void;
+    onProgress?: (info: BenchmarkProgress) => void;
+    restore: { dynamicResolution: boolean; paused: boolean };
+  } | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     // Les cartes sont decrites avec l'axe z vers le haut.
@@ -367,6 +415,181 @@ export class Session {
   }
 
   /**
+   * Lance le banc de mesure sur la carte affichee.
+   *
+   * La simulation est suspendue et la resolution interne figee : un essai dont
+   * la resolution bouge en cours de route ne mesure plus les reglages, il
+   * mesure la resolution. Rend rien quand la carte n'offre pas de quoi tracer
+   * un parcours, comme l'arene fabriquee par le code.
+   */
+  /**
+   * Montre la carte derriere le menu. La simulation attend, la camera reste
+   * presque immobile, et l'image est ramenee a une ambiance tres sombre : le
+   * menu doit se lire par-dessus sans que le decor lui dispute l'attention.
+   */
+  enterMenuView(view = FOCUS_MENU_VIEW): void {
+    if (!this.level || this.menuView) return;
+    const grade = this.grade;
+    this.menuView = { grade, drift: 0, view };
+    this.setPaused(true);
+    this.input.releaseLock();
+    this.input.setAngles(view.yaw, view.pitch);
+    this.state.origin[0] = view.origin[0];
+    this.state.origin[1] = view.origin[1];
+    this.state.origin[2] = view.origin[2];
+    this.state.previousOrigin[0] = view.origin[0];
+    this.state.previousOrigin[1] = view.origin[1];
+    this.state.previousOrigin[2] = view.origin[2];
+    this.state.velocity[0] = 0;
+    this.state.velocity[1] = 0;
+    this.state.velocity[2] = 0;
+
+    // L'arme tenue en main n'a rien a faire dans un menu.
+    if (this.viewModel) this.viewModel.scene.visible = false;
+    // Le decor du menu ne merite pas la resolution du jeu : elle est rendue
+    // au premier lancement de partie.
+    this.renderer.setRenderScale(Math.min(this.settings.current.renderScale, MENU_RENDER_SCALE));
+    this.resize();
+    this.pipeline.setMapGrade(menuGrade(grade));
+  }
+
+  /** Rend au jeu ce que la vue du menu avait mis de cote. */
+  leaveMenuView(): void {
+    const view = this.menuView;
+    if (!view) return;
+    this.menuView = null;
+    if (this.viewModel) this.viewModel.scene.visible = true;
+    this.renderer.setRenderScale(this.settings.current.renderScale);
+    this.resize();
+    this.pipeline.setMapGrade(view.grade);
+  }
+
+  get inMenuView(): boolean {
+    return this.menuView !== null;
+  }
+
+  runBenchmark(onProgress?: (info: BenchmarkProgress) => void): Promise<BenchmarkReport | null> {
+    if (this.bench) return Promise.resolve(null);
+    if (!this.level) return Promise.resolve(null);
+    const path = buildCameraPath(this.level);
+    if (!path) return Promise.resolve(null);
+
+    const settings = this.settings.current;
+    const restore = { dynamicResolution: settings.dynamicResolution, paused: this.paused };
+    this.settings.patch({ dynamicResolution: false });
+    this.renderer.setRenderScale(settings.renderScale);
+    this.resize();
+    this.input.releaseLock();
+    this.setPaused(true);
+
+    const run = new BenchmarkRun(path, this.level.name);
+    return new Promise((resolve) => {
+      this.bench = { run, finish: resolve, onProgress, restore };
+    });
+  }
+
+  /** Arrete l'essai en cours sans resultat. */
+  cancelBenchmark(): void {
+    if (!this.bench) return;
+    const { finish } = this.bench;
+    this.closeBenchmark();
+    finish(null);
+  }
+
+  get benchmarking(): boolean {
+    return this.bench !== null;
+  }
+
+  /**
+   * Derive de la vue du menu. Quelques unites de deplacement et un dixieme de
+   * degre de rotation sur une vingtaine de secondes : de quoi sentir la
+   * profondeur, pas de quoi croire a un economiseur d'ecran.
+   */
+  private driftMenuView(delta: number): void {
+    const view = this.menuView;
+    if (!view) return;
+    view.drift += delta;
+    const sway = Math.sin(view.drift * 0.26);
+    const rise = Math.sin(view.drift * 0.17 + 1.2);
+    const { origin, yaw, pitch } = view.view;
+    this.state.origin[0] = origin[0] + sway * 3;
+    this.state.origin[1] = origin[1] + rise * 2;
+    this.state.origin[2] = origin[2] + rise * 1.5;
+    this.state.previousOrigin[0] = this.state.origin[0];
+    this.state.previousOrigin[1] = this.state.origin[1];
+    this.state.previousOrigin[2] = this.state.origin[2];
+    this.input.setAngles(yaw + sway * 0.0026, pitch + rise * 0.0018);
+  }
+
+  /** Une image de l'essai : la camera avance, le temps passe est compte. */
+  private driveBenchmark(delta: number): void {
+    const active = this.bench;
+    if (!active) return;
+
+    // Une fenetre masquee suspend l'animation : l'essai ne mesure plus rien.
+    if (document.hidden) active.run.noteHidden();
+    const { sample, done } = active.run.advance(delta);
+    this.state.origin[0] = sample.origin[0];
+    this.state.origin[1] = sample.origin[1];
+    this.state.origin[2] = sample.origin[2];
+    this.state.previousOrigin[0] = sample.origin[0];
+    this.state.previousOrigin[1] = sample.origin[1];
+    this.state.previousOrigin[2] = sample.origin[2];
+    this.state.velocity[0] = 0;
+    this.state.velocity[1] = 0;
+    this.state.velocity[2] = 0;
+    this.input.setAngles(sample.yaw, sample.pitch);
+
+    active.onProgress?.({
+      warmingUp: active.run.warmingUp,
+      progress: active.run.progress,
+      elapsed: active.run.elapsed,
+      duration: active.run.duration,
+      fps: active.run.liveFps,
+      segment: active.run.segmentName,
+    });
+
+    if (!done) return;
+    const report = active.run.report(this.describeSettings(), { ...this.renderer.internalSize });
+    const { finish } = active;
+    this.closeBenchmark();
+    finish(report);
+  }
+
+  /** Rend au jeu ce que l'essai avait mis de cote. */
+  private closeBenchmark(): void {
+    const active = this.bench;
+    if (!active) return;
+    this.bench = null;
+    this.settings.patch({ dynamicResolution: active.restore.dynamicResolution });
+    this.setPaused(active.restore.paused);
+  }
+
+  /**
+   * Reglages employes par l'essai. Un resultat sans eux ne veut rien dire :
+   * c'est la premiere chose qu'on regarde en comparant deux chiffres.
+   */
+  private describeSettings(): { label: string; value: string }[] {
+    const settings = this.settings.current;
+    const { width, height } = this.renderer.internalSize;
+    const onOff = (value: boolean) => (value ? 'on' : 'off');
+    return [
+      { label: 'Preset', value: this.settings.presetName },
+      { label: 'Render buffer', value: `${width} x ${height}` },
+      { label: 'Internal resolution', value: `${Math.round(settings.renderScale * 100)} %` },
+      { label: 'Antialiasing', value: settings.antiAliasing },
+      { label: 'Ambient occlusion', value: settings.ambientOcclusion ? settings.aoQuality : 'off' },
+      { label: 'Shadows', value: settings.shadows ? settings.shadowQuality : 'off' },
+      { label: 'Bloom', value: onOff(settings.bloom) },
+      { label: 'Reflections', value: onOff(settings.reflections) },
+      { label: 'HD materials', value: onOff(settings.hdMaterials) },
+      { label: 'Micro detail', value: settings.microDetail > 0 ? `${Math.round(settings.microDetail * 100)} %` : 'off' },
+      { label: 'Dynamic lights', value: settings.dynamicLights ? String(settings.maxDynamicLights) : 'off' },
+      { label: 'Anisotropic filtering', value: `x${settings.anisotropy}` },
+    ];
+  }
+
+  /**
    * Place la vue a un point donne et arrete le temps. Sert a retrouver
    * exactement la vue d'une capture : le point de calibration est fixe, celui
    * dont on parle ne l'est pas.
@@ -563,6 +786,9 @@ export class Session {
     if (!this.level || !this.move) return;
 
     const input = this.input.sample();
+    // Banc de mesure : la camera suit son parcours, la simulation attend.
+    if (this.bench) this.driveBenchmark(delta);
+    if (this.menuView) this.driftMenuView(delta);
     if (!this.paused) {
       this.move.step(this.state, input, delta);
 

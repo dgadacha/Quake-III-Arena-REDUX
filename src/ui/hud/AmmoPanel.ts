@@ -25,7 +25,7 @@ export class AmmoPanel implements UIComponent {
     this.element.className = 'hud-panel hud-ammo';
     this.element.innerHTML = `
       <span class="hud-ammo__value">0</span>
-      <span class="hud-ammo__weapon">mitrailleuse</span>
+      <span class="hud-ammo__weapon">machinegun</span>
     `;
     this.value = this.element.querySelector('.hud-ammo__value') as HTMLElement;
     this.weapon = this.element.querySelector('.hud-ammo__weapon') as HTMLElement;

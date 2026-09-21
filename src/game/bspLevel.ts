@@ -35,7 +35,7 @@ export async function loadBspLevel(
 ): Promise<Level & { map: BspMap; lights: DynamicLightManager }> {
   const name = path.split('/').pop()?.replace(/\.bsp$/i, '') ?? path;
   const settings = options.settings;
-  options.onProgress?.('lecture', 0, 1);
+  options.onProgress?.('reading', 0, 1);
   const map = new BspMap(data, name);
 
   const textures = new TextureLibrary(vfs);

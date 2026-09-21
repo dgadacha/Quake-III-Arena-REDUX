@@ -29,11 +29,11 @@ export class StatusPanel implements UIComponent {
     this.element.innerHTML = `
       <div class="hud-stat hud-stat--health">
         <span class="hud-stat__value">125</span>
-        <span class="hud-stat__label">sante</span>
+        <span class="hud-stat__label">health</span>
       </div>
       <div class="hud-stat hud-stat--armor">
         <span class="hud-stat__value">0</span>
-        <span class="hud-stat__label">armure</span>
+        <span class="hud-stat__label">armor</span>
       </div>
     `;
 

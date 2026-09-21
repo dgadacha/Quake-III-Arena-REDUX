@@ -50,7 +50,7 @@ export interface WeaponDef {
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   gauntlet: {
     id: 'gauntlet',
-    name: 'Gantelet',
+    name: 'Gauntlet',
     kind: 'melee',
     fireDelay: 0.4,
     damage: 50,
@@ -61,7 +61,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   machinegun: {
     id: 'machinegun',
-    name: 'Mitrailleuse',
+    name: 'Machinegun',
     kind: 'hitscan',
     fireDelay: 0.1,
     damage: 7,
@@ -74,7 +74,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   shotgun: {
     id: 'shotgun',
-    name: 'Fusil a pompe',
+    name: 'Shotgun',
     kind: 'hitscan',
     fireDelay: 1,
     damage: 10,
@@ -87,7 +87,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   grenade: {
     id: 'grenade',
-    name: 'Lance-grenades',
+    name: 'Grenade Launcher',
     kind: 'projectile',
     fireDelay: 0.8,
     damage: 100,
@@ -102,7 +102,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   rocket: {
     id: 'rocket',
-    name: 'Lance-roquettes',
+    name: 'Rocket Launcher',
     kind: 'projectile',
     fireDelay: 0.8,
     damage: 100,
@@ -115,7 +115,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   lightning: {
     id: 'lightning',
-    name: 'Fusil a eclairs',
+    name: 'Lightning Gun',
     kind: 'beam',
     fireDelay: 0.05,
     damage: 8,
@@ -138,7 +138,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   plasma: {
     id: 'plasma',
-    name: 'Fusil a plasma',
+    name: 'Plasma Gun',
     kind: 'projectile',
     fireDelay: 0.1,
     damage: 20,
