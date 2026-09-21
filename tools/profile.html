@@ -1,0 +1,68 @@
+<!doctype html>
+<meta charset="utf-8">
+<base href="/">
+<title>q3dm7 GPU profile</title>
+<canvas id="viewport"></canvas><div id="overlay"></div>
+<pre id="profile" style="position:fixed;bottom:0;left:0;background:#111e;color:white;padding:12px;z-index:100;max-width:95vw;white-space:pre-wrap">Loading profile…</pre>
+<script type="module">
+  import '/src/main.ts';
+  import { hdMaterials } from '/src/renderer/materials/HDMaterialLoader.ts';
+  const panel = document.querySelector('#profile');
+  const next = () => new Promise(requestAnimationFrame);
+  while (!window.__q3?.session.currentLevel) await next();
+  const session = window.__q3.session;
+  await Promise.all([...hdMaterials.materials.values()]);
+  session.settings.patch({ dynamicResolution: false, renderScale: 1 });
+  const dpr = Number(new URLSearchParams(location.search).get('dpr') ?? 2);
+  session.renderer.webgl.setPixelRatio(dpr);
+  session.pipeline.composer.setPixelRatio(dpr);
+  session.resize();
+  session.benchmark(Number(new URLSearchParams(location.search).get('shot') ?? 3));
+  for (let i = 0; i < 30; i++) await next();
+  session.stop();
+  const gl = session.renderer.webgl.getContext();
+  const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+  const results = [];
+  for (const mode of ['full', 'noAO', 'noBloom']) {
+    session.settings.patch({ ambientOcclusion: mode !== 'noAO', bloom: mode !== 'noBloom' });
+    const gpu = new Map(), pending = [], times = [];
+    session.pipeline.composer.passes.forEach((pass, index) => {
+      const original = pass.render.bind(pass);
+      const label = `${index}:${pass.constructor.name}`;
+      pass.render = (...args) => {
+        const query = ext ? gl.createQuery() : null;
+        if (query) gl.beginQuery(ext.TIME_ELAPSED_EXT, query);
+        original(...args);
+        if (query) { gl.endQuery(ext.TIME_ELAPSED_EXT); pending.push({query,label}); }
+      };
+    });
+    let last = await next();
+    for (let frame = 0; frame < 100; frame++) {
+      session.update(1 / 60);
+      session.pipeline.render();
+      const now = await next();
+      if (frame > 15) times.push(now - last);
+      last = now;
+      for (let i = pending.length - 1; i >= 0; i--) {
+        const {query,label} = pending[i];
+        if (!gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE)) continue;
+        if (!gl.getParameter(ext.GPU_DISJOINT_EXT)) {
+          const values = gpu.get(label) ?? [];
+          values.push(gl.getQueryParameter(query, gl.QUERY_RESULT) / 1e6);
+          gpu.set(label, values);
+        }
+        gl.deleteQuery(query); pending.splice(i,1);
+      }
+    }
+    for (const {query} of pending) gl.deleteQuery(query);
+    const average = values => values.reduce((a,b) => a+b,0) / Math.max(1,values.length);
+    const report = { mode, width: gl.drawingBufferWidth, height: gl.drawingBufferHeight,
+      frameMs: +average(times).toFixed(2), fps: +(1000 / average(times)).toFixed(1),
+      gpu: Object.fromEntries([...gpu].map(([key,v])=>[key,+average(v).toFixed(2)])),
+      texturesMiB: +(session.textureBudget().bytes / 1048576).toFixed(1),
+      compressedTextures: session.textureBudget().compressedCount };
+    results.push(report); panel.textContent = JSON.stringify(results,null,2);
+    console.log('Q3_PROFILE',JSON.stringify(report));
+  }
+  panel.textContent += '\nDONE';
+</script>

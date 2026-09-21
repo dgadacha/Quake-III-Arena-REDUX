@@ -5,7 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { TAARenderPass } from 'three/examples/jsm/postprocessing/TAARenderPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { ScaledGTAOPass } from './postprocessing/ScaledGTAOPass';
 import { ToneMappingPass } from './postprocessing/ToneMappingPass';
 import { NEUTRAL_GRADE, type MapGrade } from './grading/MapGrading';
 import type { Renderer } from './Renderer';
@@ -68,6 +68,7 @@ export class RenderPipeline {
       settings.hdr,
       settings.bloom,
       settings.ambientOcclusion && settings.aoQuality !== 'off',
+      settings.aoQuality,
       settings.antiAliasing,
       settings.renderScale,
     ].join('|');
@@ -90,7 +91,7 @@ export class RenderPipeline {
 
   private build(settings: ModernRenderSettings): void {
     if (!this.scene || !this.camera) return;
-    this.composer?.dispose();
+    this.dispose();
 
     const { width, height } = this.renderer.internalSize;
     const target = new THREE.WebGLRenderTarget(width, height, {
@@ -112,7 +113,8 @@ export class RenderPipeline {
     }
 
     if (settings.ambientOcclusion && settings.aoQuality !== 'off') {
-      const ao = new GTAOPass(this.scene, this.camera, width, height);
+      const scale = settings.aoQuality === 'ultra' ? 1 : settings.aoQuality === 'high' ? 0.75 : 0.5;
+      const ao = new ScaledGTAOPass(this.scene, this.camera, width, height, scale);
       ao.output = GTAOPass.OUTPUT.Default;
       applyAoQuality(ao, settings.aoQuality);
       composer.addPass(ao);
@@ -156,7 +158,8 @@ export class RenderPipeline {
 
     if (settings.antiAliasing === 'smaa') composer.addPass(new SMAAPass(width, height));
 
-    composer.addPass(new OutputPass());
+    // ToneMappingPass produit deja le sRGB. SMAA travaille ainsi sur les
+    // contrastes affiches et aucune copie plein ecran supplementaire n'est requise.
 
     // Chaque etape est enveloppee pour connaitre son cout.
     this.stageTimings.clear();
@@ -213,6 +216,8 @@ export class RenderPipeline {
   }
 
   dispose(): void {
+    // EffectComposer ne libere que ses propres cibles, pas celles des passes.
+    for (const pass of this.composer?.passes ?? []) pass.dispose();
     this.composer?.dispose();
     this.composer = null;
   }

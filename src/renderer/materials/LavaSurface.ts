@@ -1,26 +1,10 @@
 import * as THREE from 'three';
+import { liquidTime } from './LiquidTime';
+import { lavaPattern } from './LavaPattern';
 import type { SurfaceLayer } from '../../formats/shader';
 import type { SurfaceMetadata } from './SurfaceMetadata';
 
-/**
- * Lave.
- *
- * Le moteur ne traitait la lave ni comme un liquide ni comme une surface
- * animee : elle gardait sa texture, immobile, et se lisait comme un aplat
- * orange. Or le script du jeu la decrit precisement, et en deux couches : une
- * croute a l'echelle 0,1 qui derive lentement, et par-dessus une nappe
- * additive a l'echelle inversee, teintee et dont l'opacite bat toutes les dix
- * secondes. Les deux se croisent, et c'est ce croisement qui donne les veines
- * claires sur une croute sombre.
- *
- * S'y ajoute la turbulence des coordonnees, telle que le jeu la calcule :
- * elle depend de la position dans le monde, pas des coordonnees de texture, de
- * sorte que le mouvement traverse les faces sans se couper a leurs bords.
- *
- * L'emission ne suit pas la surface entiere mais sa chaleur : la croute reste
- * sombre, les veines portent la lumiere et nourrissent le halo. C'est ce qui
- * remplace l'aplat par du relief.
- */
+/** Lave animee : couches Q3, croute periodique, fissures emissives et houle. */
 
 /** Ce que le rendu retient d'une couche du script. */
 interface Layer {
@@ -66,7 +50,8 @@ export function lavaSurface(
   // Une lave est visqueuse : elle a un reflet large, pas un miroir.
   material.roughness = 0.62;
   material.metalness = 0;
-  material.envMapIntensity = 0.15;
+  material.envMapIntensity = 0.08;
+  material.normalMap = material.roughnessMap = material.metalnessMap = material.aoMap = material.emissiveMap = null;
 
   const declared = metadata.layers.filter((layer) => layer.texture);
   const layers = (declared.length >= 2 ? declared : FALLBACK).slice(0, 2).map(read);
@@ -75,14 +60,11 @@ export function lavaSurface(
   if (layers.length === 1) layers.push({ ...layers[0], scale: [-2.5, -2.5], additive: true, tint: [0.75, 0.32, 0.18] });
 
   const uniforms: Record<string, { value: number }> = {
-    liquidTime: { value: 0 },
+    liquidTime,
     lavaGlow: { value: glow },
   };
 
-  // L'ondulation declaree par le script ne peut pas bouger la geometrie : une
-  // nappe de lave n'a que quatre sommets, la subdiviser couterait plus que ce
-  // qu'elle rapporterait. Elle incline donc la normale, ce qui deplace les
-  // reflets sans deformer la silhouette.
+  // La pente suit la houle ; le maillage BSP est subdivise uniquement pour la lave.
   const wave = metadata.deformWave;
   const swell: [number, number, number] = wave
     ? [wave.division || 1, wave.amplitude, wave.frequency]
@@ -93,6 +75,7 @@ export function lavaSurface(
     key: 'lava',
     apply(shader) {
       shader.uniforms.liquidTime = uniforms.liquidTime;
+      shader.uniforms.lavaPattern = { value: lavaPattern() };
       shader.uniforms.lavaGlow = uniforms.lavaGlow;
       shader.uniforms.lavaSwell = { value: new THREE.Vector3(...swell) };
       for (let index = 0; index < layers.length; index++) {
@@ -106,15 +89,21 @@ export function lavaSurface(
 
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
-        varying vec3 vLavaPosition;`)
+        varying vec3 vLavaPosition;
+        uniform float liquidTime;`)
         .replace('#include <begin_vertex>', `#include <begin_vertex>
-        vLavaPosition = (modelMatrix * vec4(position, 1.0)).xyz;`);
+        vLavaPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+        // Le BSP utilise Z pour la verticale. Les parois restent immobiles.
+        float surfaceWave = sin(vLavaPosition.x * 0.024 + liquidTime * 0.7)
+          * sin(vLavaPosition.y * 0.019 - liquidTime * 0.46);
+        transformed.z += surfaceWave * 1.8 * smoothstep(0.6, 0.95, abs(normal.z));`);
 
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>
         varying vec3 vLavaPosition;
         uniform float liquidTime;
         uniform float lavaGlow;
+        uniform sampler2D lavaPattern;
         uniform vec3 lavaSwell;
         uniform vec2 lavaScale0;
         uniform vec2 lavaScroll0;
@@ -152,6 +141,14 @@ export function lavaSurface(
         // La seconde couche s'ajoute, comme le script le demande, et son
         // opacite la fait respirer.
         vec3 lavaColor = lavaCrust.rgb + lavaVeins.rgb * lavaVeins.a;
+        vec2 crustUv = vLavaPosition.xy / 420.0 + vec2(-0.007, 0.004) * liquidTime;
+        vec4 flow = texture2D(lavaPattern, crustUv * 0.57 + vec2(0.003, -0.005) * liquidTime);
+        vec4 crust = texture2D(lavaPattern, crustUv + vec2(sin(flow.r * 6.283), cos(flow.r * 4.1)) * 0.075);
+        vec4 detail = texture2D(lavaPattern, crustUv * 3.73 - vec2(0.002, 0.003) * liquidTime);
+        float molten = 1.0 - smoothstep(0.16, 0.65, crust.r + (detail.r - 0.5) * 0.18);
+        float pulse = 0.88 + 0.12 * sin(liquidTime * 0.85 + flow.r * 6.283);
+        vec3 moltenColor = mix(vec3(0.7, 0.025, 0.001), vec3(1.0, 0.19, 0.008), pow(molten, 3.0));
+        lavaColor = mix(vec3(0.026, 0.012, 0.007) + lavaColor * 0.12, moltenColor, molten);
         diffuseColor.rgb = lavaColor;`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         /*
@@ -165,17 +162,21 @@ export function lavaSurface(
           cos(lavaSwellPhase * 6.2831853),
           cos(lavaSwellPhase * 6.2831853 + 1.5707963)
         ) * lavaSwell.y * 0.012;
-        #ifdef USE_NORMALMAP_TANGENTSPACE
-          normal = normalize(normal + tbn * vec3(lavaSlope, 0.0));
-        #endif`)
+        normal = normalize(normal + mat3(viewMatrix) * vec3((crust.gb - 0.5) * 1.7 + lavaSlope, 0.0));`)
+        .replace('#include <opaque_fragment>', `
+        // La chaleur propre domine : aucun reflet blanc de lampe sur le magma.
+        float crustShade = 0.6 + 0.4 * max(0.0, dot(normal, normalize(vec3(0.3, 0.4, 1.0))));
+        outgoingLight = diffuseColor.rgb * 0.5 * crustShade + totalEmissiveRadiance;
+        #include <opaque_fragment>`)
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = mix(0.92, 0.38, molten);`)
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         /*
          * La chaleur n'est pas repartie : la croute sombre ne brille pas, les
          * veines si. C'est cette difference qui remplace l'aplat, et c'est
          * elle que le halo lumineux reprend.
          */
-        float lavaHeat = dot(lavaColor, vec3(0.2126, 0.7152, 0.0722));
-        totalEmissiveRadiance = lavaColor * lavaGlow * smoothstep(0.18, 0.85, lavaHeat);`);
+        totalEmissiveRadiance = lavaColor * clamp(lavaGlow, 1.4, 2.0) * (molten * 0.94 + 0.06) * pulse;`);
     },
   };
 }

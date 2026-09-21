@@ -1,3 +1,4 @@
+import { hdMaterials } from './materials/HDMaterialLoader';
 import * as THREE from 'three';
 import type { ShaderDefinition } from '../formats/shader';
 import type { TextureLibrary } from './materials/TextureLibrary';
@@ -17,6 +18,7 @@ export interface SkyLayerMaterialOptions {
   textures: TextureLibrary;
   /** Hauteur des nuages declaree par la carte. */
   cloudHeight: number;
+  useHD?: boolean;
 }
 
 interface LayerData {
@@ -51,8 +53,9 @@ export async function createSkyLayerMaterial(
 
   for (const stage of options.definition.stages) {
     if (!stage.map || stage.map.startsWith('$')) continue;
-    const loaded = await options.textures.load(stage.map);
-    if (!loaded) continue;
+    const map = (options.useHD !== false ? await hdMaterials.loadColor(stage.map) : null)
+      ?? (await options.textures.load(stage.map))?.map;
+    if (!map) continue;
 
     const scale = new THREE.Vector2(1, 1);
     const scroll = new THREE.Vector2(0, 0);
@@ -65,7 +68,6 @@ export async function createSkyLayerMaterial(
       }
     }
 
-    const map = loaded.map;
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
     map.needsUpdate = true;
     layers.push({ map, scale, scroll });
@@ -114,10 +116,9 @@ export async function createSkyLayerMaterial(
       uniform float saturation;
       varying vec3 vWorldPosition;
 
-      // Les images sont rangees en espace d'affichage ; le rendu travaille en
-      // lineaire, d'ou cette conversion a la lecture.
+      // Les textures sRGB sont deja decodees en lineaire par le GPU.
       vec3 toLinear(vec3 color) {
-        return pow(color, vec3(2.2));
+        return color;
       }
 
       void main() {

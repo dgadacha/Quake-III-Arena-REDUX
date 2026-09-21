@@ -295,6 +295,7 @@ def resolve(
     nom ne designe pas directement un fichier, et c'est ainsi que les lampes,
     les flammes et les ecrans entrent dans la chaine.
     """
+    name = name.lower()
     light = lights.get(name)
     diffuse = images.get(name)
     if diffuse is None and light and light.diffuse:
@@ -333,14 +334,15 @@ def selection(
             return []
         chosen = []
         for name, area, faces in scanner.map_materials(bsp):
+            name = name.lower()
             emitting = name in lights
             if arguments.lights and not emitting:
                 continue
             # Les surfaces lumineuses comptent quelle que soit leur taille :
             # une lampe de deux faces fait l'ambiance d'une salle entiere.
-            if not arguments.lights and len(chosen) >= arguments.top and not emitting:
+            if not arguments.lights and len(chosen) >= arguments.top and not emitting and not arguments.complete_map:
                 continue
-            if len(chosen) >= arguments.top and not emitting:
+            if len(chosen) >= arguments.top and not emitting and not arguments.complete_map:
                 break
             # Le ciel n'est pas une surface de decor : il a son propre rendu.
             if name.startswith('textures/skies'):
@@ -352,6 +354,19 @@ def selection(
             lamp = f" lampe {declared:.0f}" if declared else ''
             print(f"  {area / 1e6:7.3f} Mu2 {faces:5d} faces  {classify(name).value:9s}{lamp}  {name}")
             chosen.append(job)
+        if arguments.complete_map:
+            wanted = {job.name for job in chosen}
+            for raw_name, _, _ in scanner.map_materials(bsp):
+                name = raw_name.lower()
+                script = lights.get(name)
+                dependencies = script.dependencies if script else ()
+                for path in dependencies:
+                    if path in wanted:
+                        continue
+                    job = resolve(path, images, lights)
+                    if job:
+                        chosen.append(job)
+                        wanted.add(path)
         return chosen
 
     if arguments.category:
@@ -370,6 +385,8 @@ def selection(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description='Chaine de textures HD de Quake Redux')
+    parser.add_argument('--source', choices=('baseq3', 'baseoa', 'missionpack'), default='baseq3')
+    parser.add_argument('--complete-map', action='store_true', help='toutes les surfaces et images animees du BSP')
     parser.add_argument('--all', action='store_true', help='toutes les textures des archives')
     parser.add_argument('--texture', action='append', help='une texture, par son nom')
     parser.add_argument('--category', help='une famille de matiere, par exemple metal')
@@ -384,6 +401,8 @@ def main() -> int:
     parser.add_argument('--keep-height', action='store_true', help='ecrit aussi la carte de relief')
     parser.add_argument('--force', action='store_true', help='refait meme ce qui existe deja')
     arguments = parser.parse_args()
+    global DATA
+    DATA = DATA / arguments.source
 
     if not DATA.exists():
         print('aucun dossier de donnees : public/data est vide')
@@ -420,6 +439,7 @@ def main() -> int:
         if result:
             entries[job.name] = result
             done += 1
+            manifest_module.save(MANIFEST, entries)
             emission = result.get('emission')
             glow = f"  emission {emission['intensity']}" if emission else ''
             noise = result.get('noise')

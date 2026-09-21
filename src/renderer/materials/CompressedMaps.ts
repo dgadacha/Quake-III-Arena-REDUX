@@ -45,7 +45,7 @@ export function readBlockTexture(buffer: ArrayBuffer): THREE.CompressedTexture |
   const levelCount = view.getUint8(7);
   let width = view.getUint16(8, true);
   let height = view.getUint16(10, true);
-  if (format !== FORMAT_BC7 || levelCount < 1) return null;
+  if (view.getUint8(4) !== 1 || format !== FORMAT_BC7 || levelCount < 1 || width < 1 || height < 1) return null;
 
   const levels: { data: Uint8Array; width: number; height: number }[] = [];
   let offset = HEADER;

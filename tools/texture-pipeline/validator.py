@@ -77,6 +77,9 @@ def edge_similarity(first: np.ndarray, second: np.ndarray) -> float:
         peak = float(magnitude.max()) or 1e-6
         return magnitude / peak
 
+    # Deux images uniformes n'ont aucune arete a correler (ex. frame noire).
+    if np.ptp(luminance(first)) < 1e-6 or np.ptp(luminance(second)) < 1e-6:
+        return 1.0 if np.ptp(luminance(first)) < 1e-6 and np.ptp(luminance(second)) < 1e-6 else 0.0
     a = edges(first).ravel()
     b = edges(second).ravel()
     a = a - a.mean()

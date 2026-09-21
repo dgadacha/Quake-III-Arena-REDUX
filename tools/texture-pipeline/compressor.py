@@ -34,9 +34,8 @@ MAGIC = b'Q3TX'
 VERSION = 1
 FORMAT_BC7 = 1
 
-# En dessous de cette taille, un niveau tient dans un bloc unique : inutile de
-# descendre plus bas, la carte graphique ne lira jamais au-dela.
-SMALLEST = 4
+# Chaine complete jusqu'a 1x1, avec dimensions reduites comme WebGL.
+SMALLEST = 1
 
 
 def compress(source: Path, normal_map: bool = False, srgb: bool = True) -> Path:
@@ -105,12 +104,10 @@ def _to_screen(image: np.ndarray) -> np.ndarray:
 
 
 def _halve(image: np.ndarray) -> np.ndarray:
-    """Moyenne des quatre pixels de chaque carre, bord impair repete."""
+    """Dimensions WebGL exactes, y compris les textures rectangulaires impaires."""
     height, width = image.shape[:2]
-    if width % 2:
-        image = np.concatenate([image, image[:, -1:]], axis=1)
-    if height % 2:
-        image = np.concatenate([image, image[-1:, :]], axis=0)
-    height, width = image.shape[:2]
-    grouped = image.reshape(height // 2, 2, width // 2, 2, image.shape[2])
-    return grouped.mean(axis=(1, 3), dtype=np.float32)
+    target = (max(1, width // 2), max(1, height // 2))
+    return np.stack([
+        np.asarray(Image.fromarray(image[..., channel], mode='F').resize(target, Image.Resampling.BOX))
+        for channel in range(image.shape[2])
+    ], axis=-1).astype(np.float32)

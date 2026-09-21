@@ -6,6 +6,7 @@ import type { LightGridTextures } from '../../bsp/LightGridTexture';
 import { materialTuning, type MaterialTuning } from './MaterialTuning';
 import { detailTexture, detailTiles } from './MicroDetail';
 import { lavaSurface } from './LavaSurface';
+import { liquidTime } from './LiquidTime';
 
 /**
  * Materiaux du decor. Les textures et les scripts du jeu ne sont pas touches :
@@ -157,15 +158,14 @@ export function updatePulses(time: number): void {
 }
 
 /** Surfaces liquides animees : leur ondulation avance avec ce compteur. */
-const liquidMaterials: { material: THREE.MeshStandardMaterial; uniforms: Record<string, { value: number }> }[] = [];
 
 /** Avance l'ondulation des liquides de la carte. */
 export function updateLiquids(time: number): void {
-  for (const entry of liquidMaterials) entry.uniforms.liquidTime.value = time;
+  liquidTime.value = time;
 }
 
 export function clearLiquids(): void {
-  liquidMaterials.length = 0;
+  liquidTime.value = 0;
   pulsedMaterials.length = 0;
 }
 
@@ -235,6 +235,7 @@ export function createWorldMaterial(options: WorldMaterialOptions): THREE.MeshSt
     options.microDetail > 0
     && material.normalMap
     && material.map
+    && !metadata.isLava
     && !metadata.isSky
     && !metadata.isAdditive
     && !metadata.isTransparent
@@ -253,7 +254,6 @@ export function createWorldMaterial(options: WorldMaterialOptions): THREE.MeshSt
   if (metadata.isLava && material.map) {
     const declared = hd?.entry.emission?.intensity ?? metadata.emissiveStrength ?? 1;
     const lava = lavaSurface(material, metadata, Math.max(0.6, declared));
-    liquidMaterials.push({ material, uniforms: lava.uniforms });
     patches.push({ key: lava.key, apply: lava.apply });
   }
   /*
@@ -261,7 +261,7 @@ export function createWorldMaterial(options: WorldMaterialOptions): THREE.MeshSt
    * opaques du decor : une vitre ou une surface additive n'a rien a y gagner,
    * et le ciel encore moins.
    */
-  if (options.grid && !metadata.isSky && !metadata.isAdditive) {
+  if (options.grid && !metadata.isLava && !metadata.isSky && !metadata.isAdditive) {
     patches.push(gridSpecularPatch(options.grid, tuning?.specular ?? 1));
   }
   patchMaterial(material, patches);
@@ -527,7 +527,7 @@ function liquidPatch(material: THREE.MeshStandardMaterial, slime: boolean): Shad
   material.envMapIntensity = slime ? 0.5 : 1.1;
 
   const uniforms: Record<string, { value: number }> = {
-    liquidTime: { value: 0 },
+    liquidTime,
     liquidAmplitude: { value: slime ? 0.1 : 0.16 },
   };
 
@@ -570,7 +570,6 @@ function liquidPatch(material: THREE.MeshStandardMaterial, slime: boolean): Shad
       );
   };
 
-  liquidMaterials.push({ material, uniforms });
   return { key: slime ? 'liquid:slime' : 'liquid:water', apply };
 }
 

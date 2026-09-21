@@ -57,6 +57,7 @@ export const BENCHMARK_SHOTS: BenchmarkShot[] = [
     pitch: -0.34,
     fov: 90,
   },
+  { name: 'q3dm7_lave', map: 'q3dm7', origin: [643, -756, -370], yaw: 3.14, pitch: 0.1, fov: 90 },
 ];
 
 export function benchmarkShot(index: number): BenchmarkShot {

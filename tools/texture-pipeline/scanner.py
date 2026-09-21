@@ -39,7 +39,7 @@ class SourceTexture:
 
 def archives(data_directory: Path) -> list[Path]:
     """Archives du jeu, dans l'ordre alphabetique comme le moteur les monte."""
-    found: list[Path] = []
+    found: list[Path] = sorted(data_directory.glob('*.pk3'))
     for directory in sorted(data_directory.iterdir()):
         if not directory.is_dir():
             continue
@@ -65,7 +65,7 @@ def catalogue(data_directory: Path) -> dict[str, SourceTexture]:
                 continue
             for extension in EXTENSIONS:
                 if lowered.endswith(extension):
-                    name = entry[: -len(extension)]
+                    name = lowered[: -len(extension)]
                     found[name] = SourceTexture(name=name, archive=archive, entry=entry)
                     break
     return found

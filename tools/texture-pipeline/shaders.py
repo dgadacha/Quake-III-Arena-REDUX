@@ -39,6 +39,7 @@ class ShaderLight:
     light_image: str | None
     light_rgb: tuple[float, float, float] | None
     wave: tuple[float, float, float, float] | None
+    dependencies: tuple[str, ...] = ()
 
     @property
     def emits(self) -> bool:
@@ -150,6 +151,7 @@ def read_block(name: str, body: str) -> ShaderLight | None:
     glow: str | None = None
     wave: tuple[float, float, float, float] | None = None
 
+    dependencies: list[str] = []
     for stage in stages:
         image: str | None = None
         additive = False
@@ -159,6 +161,9 @@ def read_block(name: str, body: str) -> ShaderLight | None:
             if not words:
                 continue
             keyword = words[0].lower()
+            if keyword in ('map', 'clampmap', 'animmap'):
+                paths = words[2:] if keyword == 'animmap' else words[1:2]
+                dependencies.extend(clean_path(path) for path in paths if not path.startswith('$'))
             if keyword in ('map', 'clampmap') and len(words) > 1:
                 if words[1].startswith('$'):
                     image = None
@@ -189,7 +194,7 @@ def read_block(name: str, body: str) -> ShaderLight | None:
             diffuse = image
 
     if diffuse is None:
-        diffuse = editor_image
+        diffuse = glow or editor_image
 
     if surface_light <= 0 and glow is None and diffuse is None:
         return None
@@ -201,6 +206,7 @@ def read_block(name: str, body: str) -> ShaderLight | None:
         light_image=light_image,
         light_rgb=light_rgb,
         wave=wave,
+        dependencies=tuple(dict.fromkeys(dependencies)),
     )
 
 

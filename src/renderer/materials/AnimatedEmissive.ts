@@ -1,3 +1,4 @@
+import { hdMaterials } from './HDMaterialLoader';
 import * as THREE from 'three';
 import type { ShaderSummary } from '../../formats/shader';
 import type { TextureLibrary } from './TextureLibrary';
@@ -9,11 +10,13 @@ import type { TextureLibrary } from './TextureLibrary';
 export async function animatedEmissive(
   summary: ShaderSummary,
   textures: TextureLibrary,
+  useHD = true,
 ): Promise<{ material: THREE.ShaderMaterial; update: (time: number) => void } | null> {
   if (!summary.additive || summary.animMaps.length < 2 || summary.animFrequency <= 0) return null;
-  const loaded = await Promise.all(summary.animMaps.map((name) => textures.load(name)));
+  const loaded = await Promise.all(summary.animMaps.map(async (name) =>
+    (useHD ? await hdMaterials.loadColor(name) : null) ?? (await textures.load(name))?.map ?? null));
   if (loaded.some((frame) => !frame)) return null;
-  const frames = loaded.map((frame) => frame!.map);
+  const frames = loaded as THREE.Texture[];
   const material = new THREE.ShaderMaterial({
     uniforms: {
       currentFrame: { value: frames[0] },

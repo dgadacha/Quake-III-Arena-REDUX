@@ -131,15 +131,16 @@ export class HDMaterialLibrary {
   }
 
   has(name: string): boolean {
-    return name in this.manifest;
+    return name.toLowerCase() in this.manifest;
   }
 
   entry(name: string): HDMaterialEntry | null {
-    return this.manifest[name] ?? null;
+    return this.manifest[name.toLowerCase()] ?? null;
   }
 
   /** Charge les cartes d'une texture, ou rien si elle n'a pas de version HD. */
   load(name: string): Promise<HDMaterialMaps | null> {
+    name = name.toLowerCase().replace(/\.(tga|jpg|jpeg|png)$/i, '');
     const existing = this.materials.get(name);
     if (existing) return existing;
 
@@ -149,6 +150,11 @@ export class HDMaterialLibrary {
     const pending = this.build(entry);
     this.materials.set(name, pending);
     return pending;
+  }
+
+  loadColor(name: string): Promise<THREE.Texture | null> {
+    const entry = this.entry(name.toLowerCase().replace(/\.(tga|jpg|jpeg|png)$/i, ''));
+    return entry ? this.texture(entry, 'baseColor', THREE.SRGBColorSpace) : Promise.resolve(null);
   }
 
   private async build(entry: HDMaterialEntry): Promise<HDMaterialMaps | null> {
@@ -183,7 +189,16 @@ export class HDMaterialLibrary {
     const cached = this.textures.get(path);
     if (cached) return cached;
 
-    const pending = (packed ? this.blockTexture(packed) : this.loader.loadAsync(path))
+    let compressed = Boolean(packed);
+    const pending = (async () => {
+      if (packed) {
+        const texture = await this.blockTexture(packed);
+        if (texture) return texture;
+      }
+      compressed = false;
+      const fallback = entry.maps[key];
+      return fallback ? this.loader.loadAsync(fallback) : null;
+    })()
       .then((texture) => {
         if (!texture) return null;
         // Les UV BSP ont leur origine en haut, comme nos DataTexture source.
@@ -191,7 +206,7 @@ export class HDMaterialLibrary {
         // HD et desalignait les motifs avec l'eclairage cuit.
         // Les blocs compresses portent deja leur orientation et leur espace
         // de couleur ; le PNG, lui, arrive retourne et sans espace declare.
-        if (!packed) {
+        if (!compressed) {
           texture.flipY = false;
           texture.colorSpace = colorSpace;
         }
@@ -200,8 +215,8 @@ export class HDMaterialLibrary {
         texture.magFilter = THREE.LinearFilter;
         // Les niveaux d'une texture compressee sont dans le fichier : la carte
         // graphique ne sait pas les calculer.
-        texture.generateMipmaps = !packed;
-        texture.anisotropy = this.anisotropy;
+        texture.generateMipmaps = !compressed;
+        texture.anisotropy = Math.min(this.anisotropy, key === 'orm' ? 4 : key === 'normal' ? 8 : 16);
         /*
          * Toutes ces cartes suivent les coordonnees de la texture diffuse. Il
          * faut le dire pour l'occlusion : dans Three, c'est le canal de la

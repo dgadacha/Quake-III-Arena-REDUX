@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { animatedEmissive } from '../src/renderer/materials/AnimatedEmissive';
+import { subdivideLava } from '../src/bsp/liquidGeometry';
+import { liquidTime } from '../src/renderer/materials/LiquidTime';
+import { clearLiquids, updateLiquids } from '../src/renderer/materials/Q3Material';
 import { createWorldMaterial } from '../src/renderer/materials/Q3Material';
 import { classifySurface } from '../src/renderer/materials/SurfaceMetadata';
 import { MaterialComparison } from '../src/renderer/debug/MaterialViews';
@@ -170,3 +173,20 @@ assert.ok(Math.abs(lavaUniforms.lavaTint1.value.x - 0.745098) < 1e-6);
 assert.ok(lavaShader.fragmentShader.indexOf('lavaLayer(vec2') < lavaShader.fragmentShader.indexOf('void main'));
 assert.ok(lavaShader.fragmentShader.includes('totalEmissiveRadiance = lavaColor'));
 console.log('PASS lave: deux couches, teinte et battement lus dans le script');
+
+// Une transition de carte doit conserver l'horloge des materiaux deja charges.
+clearLiquids();
+updateLiquids(7.5);
+assert.equal(lavaShader.uniforms.liquidTime, liquidTime);
+assert.equal(liquidTime.value, 7.5);
+const plane = new THREE.PlaneGeometry(256, 256);
+const ranges = [{ face: 12, start: 0, count: 3 }, { face: 29, start: 3, count: 3 }];
+subdivideLava(plane, ranges);
+assert.equal(plane.index!.count, 6 * 64);
+assert.deepEqual(ranges, [{ face: 12, start: 0, count: 192 }, { face: 29, start: 192, count: 192 }]);
+assert.ok(plane.attributes.position.count > 4);
+for (let i = 0; i < plane.attributes.position.count; i++) {
+  assert.equal(plane.attributes.position.getZ(i), 0);
+  assert.ok(Math.abs(plane.attributes.uv.getX(i) - (plane.attributes.position.getX(i) / 256 + 0.5)) < 1e-6);
+}
+console.log('PASS lave: horloge apres changement de carte, subdivision, UV et plages PVS');

@@ -81,14 +81,15 @@
     check(pixel().every((value) => value <= 1), 'Default grading lifts black pixels');
     messages.push('PASS: default q3dm7 grading preserves black');
 
-    // Every pass must use the same physical resolution on HiDPI screens.
+    // AO uses its configured fraction of the physical buffer on HiDPI screens.
     session.renderer.webgl.setPixelRatio(2);
     session.pipeline.composer.setPixelRatio(2);
     session.resize();
     const composer = session.pipeline.composer;
     const ao = session.pipeline.aoPass;
     const bloom = session.pipeline.bloomPass;
-    check(ao.width === composer.readBuffer.width && ao.height === composer.readBuffer.height,
+    const aoScale = session.settings.current.aoQuality === 'ultra' ? 1 : session.settings.current.aoQuality === 'high' ? 0.75 : 0.5;
+    check(ao.width === Math.round(composer.readBuffer.width * aoScale) && ao.height === Math.round(composer.readBuffer.height * aoScale),
       'AO dimensions disagree with composer at DPR 2');
     check(bloom.renderTargetBright.width === Math.round(composer.readBuffer.width / 2),
       'Bloom dimensions disagree with composer at DPR 2');

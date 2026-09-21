@@ -149,7 +149,7 @@ export class Overlay {
       <div>${stats.activeLights} lampes &middot; ${stats.activeParticles} particules &middot; ${
         stats.activeDecals
       } impacts &middot; rendu ${Math.round(stats.renderScale * 100)} %</div>
-      <div>etape la plus couteuse : ${stats.heaviestStage || 'aucune'}${
+      <div>envoi CPU le plus long : ${stats.heaviestStage || 'aucune'}${
         stats.heaviestStageMs > 0 ? ` ${stats.heaviestStageMs.toFixed(2)} ms` : ''
       }</div>
       <div>position ${x.toFixed(0)} ${y.toFixed(0)} ${z.toFixed(0)} &middot; ${

@@ -120,7 +120,7 @@ const ToneMappingShader = {
       float darkness = 1.0 - smoothstep(0.0, 0.14, gradeLuminance(color));
       color += shadowLift * darkness;
 
-      gl_FragColor = vec4(max(color, vec3(0.0)), texel.a);
+      gl_FragColor = sRGBTransferOETF(vec4(max(color, vec3(0.0)), texel.a));
     }
   `,
 };

@@ -1,3 +1,4 @@
+import { subdivideLava } from './liquidGeometry';
 import * as THREE from 'three';
 import { FaceType, Surface, type BspFace, type BspMap } from '../formats/bsp';
 import type { ShaderLibrary } from '../formats/shader';
@@ -223,10 +224,12 @@ async function buildMeshes(
       bspShader?.contents ?? 0,
     );
 
+    if (metadata.isLava) subdivideLava(geometry, group.faceRanges);
+
     const textureName = summary?.texture ?? shaderName;
     const texture = await textures.load(textureName);
     const glow = summary?.glowTexture ? await textures.load(summary.glowTexture) : null;
-    const animation = summary ? await animatedEmissive(summary, textures) : null;
+    const animation = summary ? await animatedEmissive(summary, textures, options.hdMaterials !== false) : null;
     /*
      * Version HD de cette matiere, quand la chaine en a produit une. Le nom du
      * script passe avant celui de l'image : une lampe est declaree par un
@@ -304,7 +307,7 @@ async function buildMeshes(
     mesh.receiveShadow = !metadata.isSky && !metadata.isEmissive;
     mesh.frustumCulled = true;
     root.add(mesh);
-    triangles += group.indices.length / 3;
+    triangles += (geometry.index?.count ?? 0) / 3;
 
     if (metadata.isEmissive) collectEmissive(geometry, metadata, material, context.emissiveSurfaces);
     if (animation) material.dispose();

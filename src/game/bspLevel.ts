@@ -113,7 +113,7 @@ export async function loadBspLevel(
   if (!skyInstalled && built.skyShader && built.skyMesh) {
     const definition = shaders.definition(built.skyShader);
     const material = definition
-      ? await createSkyLayerMaterial({ definition, textures, cloudHeight: built.cloudHeight })
+      ? await createSkyLayerMaterial({ definition, textures, cloudHeight: built.cloudHeight, useHD: settings.hdMaterials })
       : null;
     if (material) {
       built.skyMesh.material = material;
