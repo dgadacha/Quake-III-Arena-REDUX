@@ -44,6 +44,8 @@ interface DataManifest {
 }
 
 let manifest: DataManifest = { mods: [] };
+/** Resume des archives montees, remis au pied du menu apres un chargement. */
+let sourceSummary = '';
 let vfs = new VirtualFileSystem();
 let shaders = new ShaderLibrary();
 let activeSource = '';
@@ -127,7 +129,7 @@ async function mountSource(name: string): Promise<void> {
   if (!mod) return;
 
   const mountStart = performance.now();
-  overlay.showLoading(`Mounting ${name}`);
+  announce(`Mounting ${name}`);
   vfs = new VirtualFileSystem();
   shaders = new ShaderLibrary();
   activeSource = name;
@@ -145,7 +147,7 @@ async function mountSource(name: string): Promise<void> {
           console.warn(`${path} ignore :`, error);
           return { path, archive: null };
         } finally {
-          overlay.setProgress(`Mounting ${name}`, ++done, mod.archives.length);
+          progress(`Mounting ${name}`, ++done, mod.archives.length);
         }
       }),
     ),
@@ -166,16 +168,14 @@ async function mountSource(name: string): Promise<void> {
     manifest.mods.map((entry) => entry.name),
     activeSource,
   );
-  menu.setNotes(
-    `${vfs.mounted.length} archives &middot; ${shaders.count} shaders &middot; ${fileCount} files`
-      .replace(/&middot;/g, '·'),
-  );
+  sourceSummary = `${vfs.mounted.length} archives · ${shaders.count} shaders · ${fileCount} files`;
+  menu.setNotes(sourceSummary);
   showMenu();
 }
 
 async function loadShaderScripts(): Promise<void> {
   const scripts = vfs.listByExtension('.shader', 'scripts/');
-  overlay.setProgress('Reading shader scripts', 0, scripts.length);
+  progress('Reading shader scripts', 0, scripts.length);
 
   // Une seule demande pour tous les scripts : le systeme de fichiers groupe
   // les acces par archive et par position, ce qui evite des dizaines de
@@ -199,7 +199,7 @@ async function loadShaderScripts(): Promise<void> {
   }
   const parseMs = performance.now() - parseStart;
 
-  overlay.setProgress('Reading shader scripts', scripts.length, scripts.length);
+  progress('Reading shader scripts', scripts.length, scripts.length);
   await yieldToBrowser();
 
   mountTimings.scriptsFichiers = scripts.length;
@@ -236,7 +236,7 @@ async function playMap(entry: MapEntry, silent = false): Promise<void> {
     // Le menu s'efface avant le chargement : sinon il reste par-dessus la
     // barre de progression pendant les dix secondes que prend la carte.
     if (!silent) menu.hide();
-    overlay.showLoading(`Loading ${entry.name}`);
+    announce(`Loading ${entry.name}`);
     await yieldToBrowser();
 
     const data = await vfs.read(entry.path);
@@ -245,7 +245,7 @@ async function playMap(entry: MapEntry, silent = false): Promise<void> {
     const level = await loadBspLevel(entry.path, data, vfs, shaders, {
       settings: session.settings.current,
       maxAnisotropy: session.renderer.maxAnisotropy,
-      onProgress: (label, done, total) => overlay.setProgress(`${entry.name} : ${label}`, done, total),
+      onProgress: (label, done, total) => progress(`${entry.name} · ${label}`, done, total),
     });
 
     session.setLevel(level);
@@ -290,6 +290,27 @@ function playDemo(): void {
   showHud(true);
   session.input.requestLock();
   overlay.notify('Test arena: no game data used');
+}
+
+/**
+ * Annonce une etape de chargement.
+ *
+ * Tant que le menu est a l'ecran, elle passe par la ligne discrete de son pied
+ * de page : l'ecran de chargement, lui, apparaitrait derriere le menu, dont le
+ * fond est translucide, et on verrait la barre a travers les entrees.
+ */
+function announce(label: string): void {
+  if (menu.isVisible) menu.setNotes(label.toLowerCase());
+  else overlay.showLoading(label);
+}
+
+/** Avancement d'une etape, au meme endroit que son annonce. */
+function progress(label: string, done: number, total: number): void {
+  if (menu.isVisible) {
+    menu.setNotes(total > 1 ? `${label.toLowerCase()} · ${done}/${total}` : label.toLowerCase());
+    return;
+  }
+  overlay.setProgress(label, done, total);
 }
 
 /** Le HUD n'a de sens qu'en jeu : il disparait avec le menu. */
@@ -453,7 +474,7 @@ window.addEventListener('drop', async (event) => {
   const files = [...(event.dataTransfer?.files ?? [])];
   if (files.length === 0) return;
 
-  overlay.showLoading('Reading dropped files');
+  announce('Reading dropped files');
   for (const file of files) {
     const name = file.name.toLowerCase();
     try {
@@ -470,7 +491,8 @@ window.addEventListener('drop', async (event) => {
   }
   await loadShaderScripts();
   refreshMaps();
-  menu.setNotes(`${vfs.mounted.length} archives mounted, ${shaders.count} shaders read.`);
+  sourceSummary = `${vfs.mounted.length} archives · ${shaders.count} shaders`;
+  menu.setNotes(sourceSummary);
   showMenu();
 });
 
@@ -513,6 +535,7 @@ async function boot(): Promise<void> {
    * l'entree en jeu est ensuite immediate.
    */
   await playMap(entry, true);
+  menu.setNotes(sourceSummary);
   showMenu();
 }
 
