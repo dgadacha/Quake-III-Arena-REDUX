@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { MASK_SHOT, type Vec3 } from '../../formats/bsp';
 import type { BeamSystem } from '../../renderer/effects/BeamSystem';
+import { BodyShadows, type ShadowCaster } from '../../renderer/effects/BodyShadows';
 import type { Effects } from '../../renderer/effects/Effects';
 import { PLAYER_MAXS, PLAYER_MINS, type TraceResult } from '../collision';
 import type { ItemManager } from '../entities/Items';
@@ -151,6 +152,12 @@ export class Arena {
   /** Combattants dont le corps a explose : il n'y a plus rien a montrer. */
   private readonly gibbed = new Set<number>();
   private readonly gibs = new GibSystem();
+  /**
+   * Ombres portees des corps : leur silhouette, projetee au sol. Elles sont
+   * dessinees par la session, juste avant la scene, car il leur faut le rendu.
+   */
+  readonly shadows = new BodyShadows();
+  private readonly casters: ShadowCaster[] = [];
 
   /** Prevenu de chaque elimination : le journal de l'interface s'en nourrit. */
   onKill: ((notice: KillNotice) => void) | null = null;
@@ -200,6 +207,11 @@ export class Arena {
    */
   get goals(): { position: THREE.Vector3; kind: 'health' | 'armor' | 'ammo' | 'weapon' | 'powerup'; weapon?: string }[] {
     return this.items?.goals ?? [];
+  }
+
+  /** Ombres portees posees a la derniere image, pour la mise au point. */
+  get shadowCount(): number {
+    return this.shadows.activeCount;
   }
 
   /** Morceaux de corps en vol, pour la mise au point. */
@@ -288,6 +300,7 @@ export class Arena {
 
     this.gibs.onImpact = (point) => this.sounds.gibImpact(point);
     this.gibs.attach(options.parent);
+    this.shadows.attach(options.parent);
     if (options.level.vfs) {
       void this.gibs.load(options.level.vfs, options.level.textures ?? null);
     }
@@ -691,6 +704,7 @@ export class Arena {
   update(delta: number, viewer: THREE.Vector3): void {
     if (!this.running || !this.level) return;
     if (!this.finished) this.elapsed += delta;
+    this.casters.length = 0;
 
     for (const fighter of this.fighters) {
       if (!fighter.player.alive) {
@@ -775,6 +789,7 @@ export class Arena {
       model.hide();
       return;
     }
+    this.castShadow(fighter, model);
     model.setWeapon(fighter.weapons.currentId);
     // Lumiere du lieu ou il se trouve : la grille de la carte la donne.
     const grid = this.level?.grid;
@@ -789,6 +804,56 @@ export class Arena {
       firing: fighter.brain?.firing ?? false,
       alive: fighter.player.alive,
     });
+  }
+
+  /**
+   * Recense l'ombre d'un corps : le sol sous lui, et le contraste du lieu.
+   *
+   * Le sol est cherche par une trace verticale depuis les pieds. Sans sol a
+   * portee, il n'y a pas d'ombre a poser : un corps au-dessus du vide n'en
+   * projette aucune.
+   */
+  private castShadow(fighter: Fighter, model: PlayerModel): void {
+    const level = this.level;
+    if (!level) return;
+    /*
+     * La trace part de l'origine du combattant, pas de ses pieds : posee au
+     * sol, une trace qui commence exactement sur la surface commence dans le
+     * solide, et le moteur rend alors le bout du trajet. La hauteur calculee
+     * devenait la portee entiere, l'ombre etait jugee trop haute pour compter,
+     * et aucun corps au sol n'en avait.
+     */
+    const origin = fighter.state.origin;
+    const from: Vec3 = [origin[0], origin[1], origin[2]];
+    const below: Vec3 = [from[0], from[1], from[2] - 220];
+    const hit = level.collision.trace(from, below, [0, 0, 0], [0, 0, 0], MASK_SHOT);
+    if (hit.fraction >= 1 || hit.startSolid) return;
+
+    /*
+     * Contraste du lieu : une piece eclairee a plat ne projette presque rien,
+     * une torche unique projette net. La grille le dit, en comparant la
+     * lumiere dominante a l'ambiante.
+     */
+    let contrast = 0.75;
+    const grid = level.grid;
+    if (grid) {
+      const sample = grid.sample(this.centerOf(fighter), this.gridSample);
+      const ambient = luminanceOf(sample.ambient);
+      const directed = luminanceOf(sample.directional);
+      contrast = directed + ambient > 1e-4 ? directed / (directed + ambient) : 0.5;
+    }
+
+    this.casters.push({
+      group: model.group,
+      origin: [origin[0], origin[1], origin[2]],
+      floor: { point: [...hit.endPosition] as Vec3, normal: [...hit.normal] as Vec3 },
+      contrast: Math.max(0.3, Math.min(1, 0.35 + contrast * 0.8)),
+    });
+  }
+
+  /** Corps a ombrer pour cette image : la session les dessine. */
+  get shadowCasters(): ShadowCaster[] {
+    return this.casters;
   }
 
   /** Lave, sol mortel et sortie de carte. */
@@ -912,4 +977,9 @@ function shuffle<T>(list: T[]): T[] {
     [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
+}
+
+/** Luminance d'une couleur, pour comparer une ambiante a une dominante. */
+function luminanceOf(color: THREE.Color): number {
+  return color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
 }

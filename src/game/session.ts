@@ -615,6 +615,9 @@ export class Session {
    */
   /** Dessine l'image tout de suite : la capture lit le tampon juste apres. */
   draw(): void {
+    // Les silhouettes des ombres portees sont rendues hors ecran juste avant
+    // la scene : leurs images doivent etre a jour quand les projections passent.
+    this.arena.shadows.draw(this.renderer.webgl, this.arena.shadowCasters);
     this.pipeline.render();
   }
 
@@ -998,6 +1001,11 @@ export class Session {
       this.scene.environment = this.probe.texture;
     }
 
+    /*
+     * Ombres portees des corps : leur silhouette est rendue hors ecran, une
+     * image par combattant, juste avant la scene qui les projette au sol.
+     */
+    this.arena.shadows.draw(this.renderer.webgl, this.arena.shadowCasters);
     this.pipeline.render();
 
     const counts = this.effects.counts;
