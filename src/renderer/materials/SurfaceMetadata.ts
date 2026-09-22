@@ -54,7 +54,9 @@ export function classifySurface(
   // couche additive ou un nom parlant donnent une bonne indication.
   const declared = summary?.surfaceLight ?? 0;
   const hinted = LIGHT_HINTS.some((hint) => lower.includes(hint));
-  const additive = Boolean(summary?.additive);
+  // Pour l'emission, une couche additive posee par dessus compte autant que
+  // la surface entiere : c'est elle qui fait la lueur.
+  const additive = Boolean(summary?.additive || summary?.additiveLayer);
   const isEmissive = declared > 0 || lava || (additive && hinted) || (hinted && !summary?.lightmapped);
 
   /**
@@ -85,7 +87,7 @@ export function classifySurface(
     emissiveStrength,
     emissiveColor: summary?.lightColor ?? null,
     isTransparent: Boolean(summary?.translucent) || water || slime,
-    isAdditive: additive,
+    isAdditive: Boolean(summary?.additive),
     isReflective: water || slime || lower.includes('metal') || lower.includes('shiny'),
     receivesAO: !sky && !isEmissive,
     receivesDynamicLight: !sky,

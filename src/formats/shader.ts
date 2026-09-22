@@ -325,7 +325,10 @@ export interface ShaderSummary {
   /** Couche supplementaire ajoutee par dessus, pour les effets lumineux. */
   glowTexture: string | null;
   translucent: boolean;
+  /** La surface elle-meme s'ajoute a l'image : sa premiere couche s'ajoute. */
   additive: boolean;
+  /** Une de ses couches s'ajoute par dessus les autres : elle brille. */
+  additiveLayer: boolean;
   alphaTest: boolean;
   lightmapped: boolean;
   twoSided: boolean;
@@ -389,6 +392,33 @@ export interface SurfaceLayer {
 
 const HIDDEN_PARAMS = ['nodraw', 'trans', 'hint', 'skip'];
 
+/**
+ * Comment une couche se melange a ce qui est deja dessine.
+ *
+ * - opaque : elle recouvre, blendFunc absent ou GL_ONE GL_ZERO ;
+ * - alpha : elle se pose par son canal alpha ;
+ * - additive : elle s'ajoute, c'est une lueur ;
+ * - modulate : elle multiplie ce qui est dessous, c'est ainsi qu'une texture
+ *   se marie a son lightmap. Cela ne rend pas la surface transparente.
+ */
+export type StageBlend = 'opaque' | 'alpha' | 'additive' | 'modulate';
+
+/** Chemin sans son extension, pour comparer un nom de shader a une image. */
+function stripExtension(path: string | null): string {
+  return path ? path.toLowerCase().replace(/\.(tga|jpg|jpeg|png)$/, '') : '';
+}
+
+export function stageBlend(stage: ShaderStage): StageBlend {
+  const source = stage.blendSource;
+  const dest = stage.blendDest;
+  if (!source || !dest) return 'opaque';
+  if (source === 'gl_one' && dest === 'gl_zero') return 'opaque';
+  if (dest === 'gl_one_minus_src_alpha' || source === 'gl_one_minus_src_alpha') return 'alpha';
+  if (source === 'gl_one' && (dest === 'gl_one' || dest === 'gl_src_alpha')) return 'additive';
+  if (source === 'gl_src_alpha' && dest === 'gl_one') return 'additive';
+  return 'modulate';
+}
+
 /** Resume ce que la definition implique pour le rendu. */
 export function summarizeShader(definition: ShaderDefinition): ShaderSummary {
   const params = definition.surfaceParams;
@@ -398,6 +428,7 @@ export function summarizeShader(definition: ShaderDefinition): ShaderSummary {
     glowTexture: null,
     translucent: false,
     additive: false,
+    additiveLayer: false,
     alphaTest: false,
     lightmapped: definition.stages.some((stage) => stage.map === '$lightmap'),
     twoSided: definition.cull === 'none' || definition.cull === 'twosided' || definition.cull === 'disable',
@@ -420,35 +451,71 @@ export function summarizeShader(definition: ShaderDefinition): ShaderSummary {
     deformWave: readDeformWave(definition.deforms),
   };
 
-  for (const stage of definition.stages) {
-    if (!stage.map || stage.map === '$lightmap' || stage.map === '$whiteimage') continue;
+  /*
+   * Opacite de la surface : elle se lit sur la premiere couche du script, et
+   * sur elle seule. Les couches suivantes se melangent a ce que les
+   * precedentes ont dessine, pas au decor derriere : un mur dont la premiere
+   * couche est le lightmap reste donc opaque, quoi que declarent les
+   * suivantes.
+   *
+   * Les murs de fer de q3dm7 le montrent : lightmap, puis la texture en
+   * GL_DST_COLOR GL_SRC_ALPHA avec alphaGen lightingSpecular. Leur canal
+   * alpha porte le reflet, quatre-vingt-dix-neuf pour cent de ses pixels sont
+   * presque nuls, et le prendre pour une consigne de decoupe efface le mur.
+   */
+  const opening = definition.stages[0];
+  const firstBlend = opening ? stageBlend(opening) : 'opaque';
+  summary.translucent = firstBlend === 'alpha' || firstBlend === 'modulate';
+  summary.additive = firstBlend === 'additive';
+  // Une decoupe ne vient que d'un alphaFunc, ecrit noir sur blanc.
+  summary.alphaTest = definition.stages.some((stage) => stage.alphaFunc !== '');
 
-    summary.layers.push(readLayer(stage));
-    const blends = stage.blendSource && stage.blendDest;
-    const additive =
-      stage.blendSource === 'gl_one' && (stage.blendDest === 'gl_one' || stage.blendDest === 'gl_src_alpha');
-    const alphaBlend =
-      stage.blendSource === 'gl_src_alpha' && stage.blendDest === 'gl_one_minus_src_alpha';
+  const colourStages = definition.stages.filter(
+    (stage) => stage.map && stage.map !== '$lightmap' && stage.map !== '$whiteimage',
+  );
+  for (const stage of colourStages) summary.layers.push(readLayer(stage));
+  summary.additiveLayer = colourStages.some((stage) => stageBlend(stage) === 'additive');
 
-    if (!summary.texture) {
-      summary.texture = stage.map;
-      summary.alphaTest = stage.alphaFunc !== '';
-      summary.translucent = Boolean(alphaBlend || (blends && !additive && stage.blendDest !== 'gl_zero'));
-      summary.additive = additive;
-      if (stage.animMaps.length > 1) {
-        summary.animMaps = stage.animMaps;
-        summary.animFrequency = stage.animFrequency;
-      }
-      for (const mod of stage.tcMods) {
-        const parts = mod.split(/\s+/);
-        if (parts[0] === 'scroll') summary.scroll = [Number(parts[1]) || 0, Number(parts[2]) || 0];
-        if (parts[0] === 'turb') summary.wavy = true;
-      }
-    } else if (additive && !summary.glowTexture) {
-      summary.glowTexture = stage.map;
-      // Le battement appartient a la couche lumineuse, pas a la surface.
-      summary.glowWave = stage.rgbWave;
+  /*
+   * Couche qui porte l'aspect de la surface.
+   *
+   * Le script porte le nom de sa texture : quand une couche reprend ce nom,
+   * c'est elle que la carte designe, et les autres sont un fond ou une lueur.
+   * C'est ce qui distingue le bloc de son feu dans blocks17_ow, ou la statue
+   * de sa flamme dans baphomet_gold, sans avoir a deviner. A defaut, l'image
+   * annoncee a l'editeur dit la meme chose, et sinon on prend la premiere
+   * couche de couleur qui ne s'ajoute pas : une couche additive n'est qu'une
+   * lueur posee par dessus.
+   */
+  const named = (candidate: string | null): ShaderStage | undefined => {
+    const wanted = stripExtension(candidate);
+    if (!wanted) return undefined;
+    return colourStages.find((stage) => stripExtension(stage.map) === wanted);
+  };
+  const base =
+    named(definition.name)
+    ?? named(definition.editorImage)
+    ?? colourStages.find((stage) => stageBlend(stage) !== 'additive')
+    ?? colourStages[0];
+
+  if (base) {
+    summary.texture = base.map;
+    if (base.animMaps.length > 1) {
+      summary.animMaps = base.animMaps;
+      summary.animFrequency = base.animFrequency;
     }
+    for (const mod of base.tcMods) {
+      const parts = mod.split(/\s+/);
+      if (parts[0] === 'scroll') summary.scroll = [Number(parts[1]) || 0, Number(parts[2]) || 0];
+      if (parts[0] === 'turb') summary.wavy = true;
+    }
+  }
+
+  const glow = colourStages.find((stage) => stage !== base && stageBlend(stage) === 'additive');
+  if (glow) {
+    summary.glowTexture = glow.map;
+    // Le battement appartient a la couche lumineuse, pas a la surface.
+    summary.glowWave = glow.rgbWave;
   }
 
   if (!summary.texture && definition.editorImage) summary.texture = definition.editorImage;

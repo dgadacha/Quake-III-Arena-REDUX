@@ -204,12 +204,22 @@ export function createWorldMaterial(options: WorldMaterialOptions): THREE.MeshSt
 
   if (hd) applyHDMaps(material, hd, options);
 
-  if (metadata.alphaTest || texture?.hasAlpha) {
+  /*
+   * Decoupe : seulement quand le script la demande par un alphaFunc. La
+   * presence d'un canal alpha ne veut rien dire a elle seule : sur les murs
+   * de fer de q3dm7 il porte le reflet, et le decouper efface le mur.
+   */
+  if (metadata.alphaTest) {
     material.alphaTest = 0.5;
   }
   if (metadata.isTransparent) {
     material.transparent = true;
-    material.opacity = metadata.isWater || metadata.isSlime ? 0.82 : 0.75;
+    /*
+     * L'eau et la boue n'ont pas d'alpha dans leur image : leur opacite est
+     * imposee. Ailleurs, c'est le canal alpha de la texture qui la donne,
+     * comme le fait le melange declare par le script.
+     */
+    material.opacity = metadata.isWater || metadata.isSlime ? 0.82 : 1;
     material.depthWrite = false;
   }
   if (metadata.isAdditive) {

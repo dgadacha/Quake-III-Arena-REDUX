@@ -190,3 +190,108 @@ for (let i = 0; i < plane.attributes.position.count; i++) {
   assert.ok(Math.abs(plane.attributes.uv.getX(i) - (plane.attributes.position.getX(i) / 256 + 0.5)) < 1e-6);
 }
 console.log('PASS lave: horloge apres changement de carte, subdivision, UV et plages PVS');
+
+/*
+ * Opacite : elle se lit dans le script, jamais dans l'image.
+ *
+ * Les murs de fer de q3dm7 posent le probleme en entier. Leur script pose le
+ * lightmap, puis la texture melangee par GL_DST_COLOR GL_SRC_ALPHA avec
+ * alphaGen lightingSpecular : le canal alpha porte le reflet, et quatre-vingt
+ * dix-neuf pour cent de ses pixels tombent sous le seuil de decoupe. Prendre
+ * ce canal pour une consigne de decoupe efface le mur et laisse voir le ciel
+ * derriere, et prendre ce melange pour de la transparence le rend translucide.
+ */
+const ironWall = summarizeShader(parseShaderScript(`textures/gothic_wall/iron01_ndark
+{
+{
+map $lightmap
+rgbgen identity
+}
+{
+map textures/gothic_wall/iron01_ndark.tga
+blendFunc GL_DST_COLOR GL_SRC_ALPHA
+rgbGen identity
+alphaGen lightingSpecular
+}
+}`)[0]);
+assert.equal(ironWall.translucent, false);
+assert.equal(ironWall.additive, false);
+assert.equal(ironWall.alphaTest, false);
+assert.equal(ironWall.texture, 'textures/gothic_wall/iron01_ndark.tga');
+
+const ironMaterial = createWorldMaterial({
+  ...options,
+  metadata: classifySurface('textures/gothic_wall/iron01_ndark', ironWall, 0, 0),
+  texture: { map: new THREE.Texture(), normalMap: null, roughnessMap: null, hasAlpha: true },
+});
+assert.equal(ironMaterial.alphaTest, 0);
+assert.equal(ironMaterial.transparent, false);
+assert.equal(ironMaterial.depthWrite, true);
+
+// Une decoupe declaree reste une decoupe, et elle seule en produit une.
+const grate = summarizeShader(parseShaderScript(`models/mapobjects/skel/skel
+{
+cull disable
+surfaceparm alphashadow
+{
+map models/mapobjects/skel/skel.tga
+alphaFunc GE128
+depthWrite
+rgbGen vertex
+}
+}`)[0]);
+assert.equal(grate.alphaTest, true);
+assert.equal(grate.translucent, false);
+assert.equal(
+  createWorldMaterial({
+    ...options,
+    metadata: classifySurface('models/mapobjects/skel/skel', grate, 0, 0),
+    texture: { map: new THREE.Texture(), normalMap: null, roughnessMap: null, hasAlpha: true },
+  }).alphaTest,
+  0.5,
+);
+
+// Une premiere couche melangee par son alpha, elle, est bien translucide.
+const glass = summarizeShader(parseShaderScript(`textures/sfx/portal_sfx
+{
+portal
+surfaceparm nolightmap
+{
+map textures/sfx/portal_sfx3.tga
+blendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA
+depthWrite
+}
+}`)[0]);
+assert.equal(glass.translucent, true);
+assert.equal(glass.alphaTest, false);
+assert.equal(glass.texture, 'textures/sfx/portal_sfx3.tga');
+
+/*
+ * Fond, calque et lueur : la couche qui porte le nom du script est celle que
+ * la carte designe, les autres sont un decor derriere ou une lumiere posee
+ * dessus. Sans cette regle, le bloc de q3dm7 se dessine avec son feu.
+ */
+const window = summarizeShader(parseShaderScript(`textures/gothic_block/blocks17_ow
+{
+{
+map textures/sfx/firegorre.tga
+tcmod scroll 0 1
+blendFunc GL_ONE GL_ZERO
+rgbGen identity
+}
+{
+map textures/gothic_block/blocks17_ow.tga
+blendFunc blend
+rgbGen identity
+}
+{
+map $lightmap
+blendFunc filter
+rgbGen identity
+}
+}`)[0]);
+assert.equal(window.texture, 'textures/gothic_block/blocks17_ow.tga');
+assert.equal(window.translucent, false);
+assert.equal(window.alphaTest, false);
+assert.equal(window.lightmapped, true);
+console.log("PASS opacite : lue dans le script, un canal alpha ne decoupe rien");
