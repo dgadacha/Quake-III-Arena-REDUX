@@ -120,6 +120,11 @@ export interface ModernRenderSettings {
    */
   gridSpecular: number;
   /**
+   * Volume general, de zero a un. Les sons du menu et de l'ambiance sont lus
+   * dans les archives du joueur ; a zero, rien n'est joue.
+   */
+  soundVolume: number;
+  /**
    * Force du micro-relief pose sur les surfaces du decor. Une texture
    * agrandie n'a pas plus de detail a montrer que son original ; cette couche
    * lui rend le grain qui manque de pres, sans rien couter en memoire. Zero
@@ -192,6 +197,7 @@ export const PRESETS: Record<PresetName, ModernRenderSettings> = {
     hdMaterials: false,
     gridSpecular: 0,
     microDetail: 0,
+    soundVolume: 0.6,
     deriveMaterialDetail: false,
   },
   low: {
@@ -210,6 +216,7 @@ export const PRESETS: Record<PresetName, ModernRenderSettings> = {
     hdMaterials: false,
     gridSpecular: 0,
     microDetail: 0,
+    soundVolume: 0.6,
     deriveMaterialDetail: false,
   },
   medium: {
@@ -312,6 +319,7 @@ function baseModern(): ModernRenderSettings {
     hdMaterials: true,
     gridSpecular: 1.6,
     microDetail: 0.55,
+    soundVolume: 0.6,
     deriveMaterialDetail: true,
   };
 }

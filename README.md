@@ -93,11 +93,23 @@ The report gives the average, the 1 % and 0.1 % lows, the frame rate section by
 section, the frame time curve, and the settings used. Frames where the browser
 suspended rendering are discarded and counted separately.
 
-**Settings** keeps eleven choices, the ones that change what you see or what the
-machine has to swallow: preset, render scale, dynamic resolution, antialiasing,
-textures, shadows, ambient occlusion, bloom, reflections, anisotropic filtering,
-brightness. The `classic` preset is the comparison point: it brings the image
-back to something close to the 1999 rendering.
+**Settings** keeps twelve choices, the ones that change what you see, what you
+hear, or what the machine has to swallow: preset, render scale, dynamic
+resolution, antialiasing, textures, shadows, ambient occlusion, bloom,
+reflections, anisotropic filtering, sound, brightness. The `classic` preset is
+the comparison point: it brings the image back to something close to the 1999
+rendering.
+
+**Sound.** The menu uses the game's own four samples, read from your archives
+like everything else: `menu2` when the selection moves, `menu1` on validation,
+`menu3` on the way back, `menu4` when an entry is not available. A hundred
+milliseconds each, metallic, exactly as in 1999. Underneath runs an ambience
+this project generates rather than borrows — two very low detuned drones and a
+filtered breath, at five percent of the volume — so the lava room behind the
+menu is not silent. A browser refuses to play anything before the player has
+touched something: the samples are read from the archives right away and
+decoded on the first click or keypress. `?mute` in the address silences
+everything, which is what the automated checks use.
 
 The sixty-odd art direction knobs — contrast, temperature, lightmap floor, weapon
 bob amplitude — are calibration tools, not player settings. They live in a panel
@@ -231,6 +243,7 @@ The console exposes a handle, `__q3`:
 | `__q3.menuView(x, y, z, yaw, pitch)` | tries a viewpoint for the menu backdrop |
 | `__q3.tuning()` | the detailed rendering panel |
 | `__q3.weapon()` | measures the held weapon's silhouette on screen |
+| `__q3.sounds()` | which samples are decoded, the audio context state, the volume |
 
 **F6** cycles the material comparison: Quake Redux, original textures, or a split
 image with the original on the left. **F7** cycles the final image and nine debug
@@ -239,7 +252,7 @@ normal, roughness, metal, occlusion, emissive.
 
 URL parameters: `?play` starts the map immediately, `?map=<name>` picks another
 one, `?shot=<n>` jumps to a calibration viewpoint, `?source=<folder>` chooses
-which data folder to mount.
+which data folder to mount, `?mute` silences the sound.
 
 Two harnesses run beside the game, with the dev server up:
 
@@ -254,6 +267,7 @@ Two harnesses run beside the game, with the dev server up:
 
 ```
 src/
+  audio/        sound playback, decoding, master volume
   formats/      pk3, bsp, md3, shader scripts, binary reading
   bsp/          geometry, lightmaps, light grid, visibility, curved patches
   game/         session, player movement, collision, weapons, entities
@@ -297,7 +311,9 @@ staircase.
 
 **Quake III Arena** is the work of id Software, released in 1999. The maps,
 textures, models, sounds and shader scripts belong to them, are read from your
-own installation, and never leave your machine. Nothing derived from them is
+own installation, and never leave your machine. The four menu samples are
+theirs too: the engine reads them from your archives at startup and holds them
+in memory, nothing more. Nothing derived from them is
 committed here either: the generated materials, the HD models and the upscaling
 binary all sit in ignored folders.
 

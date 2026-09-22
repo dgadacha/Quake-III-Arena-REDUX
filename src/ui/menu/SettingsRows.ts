@@ -136,6 +136,16 @@ export const SETTING_ROWS: SettingRow[] = [
     reload: true,
   },
   {
+    id: 'sound',
+    label: 'Sound',
+    read: (settings) => ({
+      text: settings.soundVolume > 0 ? `${Math.round(settings.soundVolume * 100)} %` : 'off',
+      fill: settings.soundVolume,
+    }),
+    step: (direction, settings, store) =>
+      store.patch({ soundVolume: slide(settings.soundVolume, direction, 0, 1, 0.1) }),
+  },
+  {
     id: 'brightness',
     label: 'Brightness',
     read: (settings) => ({

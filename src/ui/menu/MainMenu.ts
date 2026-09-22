@@ -1,6 +1,7 @@
 import '../styles/menu.css';
 import type { ModernRenderSettings, RenderSettingsStore } from '../../renderer/RenderSettings';
 import { SETTING_ROWS, type SettingRow } from './SettingsRows';
+import type { MenuAudio } from './MenuAudio';
 
 /**
  * Menu principal.
@@ -91,7 +92,12 @@ export class MainMenu {
   /** Prevenu quand les reglages ouverts en partie sont refermes. */
   onClose: (() => void) | null = null;
 
-  constructor(parent: HTMLElement, build: string, private readonly store?: RenderSettingsStore) {
+  constructor(
+    parent: HTMLElement,
+    build: string,
+    private readonly store?: RenderSettingsStore,
+    private readonly audio?: MenuAudio,
+  ) {
     this.root = document.createElement('div');
     this.root.className = 'menu';
     this.root.innerHTML = `
@@ -262,9 +268,10 @@ export class MainMenu {
         ? `${entry.label}<span class="menu-item__note">${entry.note}</span>`
         : entry.label;
       item.addEventListener('mouseenter', () => {
-        if (item.disabled) return;
+        if (item.disabled || this.index === items.indexOf(item)) return;
         this.index = items.indexOf(item);
         this.refresh();
+        this.audio?.play('move');
       });
       item.addEventListener('click', () => this.choose(items.indexOf(item)));
       items.push(item);
@@ -290,9 +297,10 @@ export class MainMenu {
     `;
     line.addEventListener('mouseenter', () => {
       const page = this.pages.get('settings');
-      if (!page) return;
+      if (!page || this.index === page.items.indexOf(line)) return;
       this.index = page.items.indexOf(line);
       this.refresh();
+      this.audio?.play('move');
     });
     line.addEventListener('click', (event) => {
       // Le clic droit de la souris n'arrive pas ici : un clic avance d'un
@@ -314,6 +322,7 @@ export class MainMenu {
     if (!row || !this.store) return;
     row.step(direction, this.store.current, this.store);
     this.readSettings();
+    this.audio?.play('move');
     if (row.reload) this.onReload?.();
   }
 
@@ -376,7 +385,13 @@ export class MainMenu {
   private choose(position: number): void {
     const page = this.pages.get(this.page);
     const item = page?.items[position];
-    if (!page || !item || item.disabled) return;
+    if (!page || !item) return;
+    if (item.disabled) {
+      // Le jeu repond aussi quand il ne se passe rien : c'est ce qui dit que
+      // l'entree existe mais n'est pas disponible.
+      this.audio?.play('deny');
+      return;
+    }
     this.index = position;
     this.refresh();
     // Le symbole marque le choix d'une impulsion, puis revient a l'ombre.
@@ -411,6 +426,7 @@ export class MainMenu {
       if (!page.items[next].disabled) {
         this.index = next;
         this.refresh();
+        this.audio?.play('move');
         return;
       }
     }
@@ -457,6 +473,7 @@ export class MainMenu {
         if (this.inOverlay) break;
         if (this.page !== 'main') {
           event.preventDefault();
+          this.audio?.play('back');
           this.showPage('main');
         }
         break;

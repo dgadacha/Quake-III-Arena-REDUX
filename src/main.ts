@@ -6,6 +6,8 @@ import { loadBspLevel } from './game/bspLevel';
 import { Session } from './game/session';
 import { Overlay, type MapEntry } from './ui/overlay';
 import { MainMenu } from './ui/menu/MainMenu';
+import { MenuAudio } from './ui/menu/MenuAudio';
+import { sound } from './audio/SoundSystem';
 import { SettingsPanel } from './ui/SettingsPanel';
 import { BenchmarkScreen } from './ui/BenchmarkScreen';
 import { UIManager } from './ui/core/UIManager';
@@ -26,7 +28,28 @@ session.attachUI(ui);
 ui.setHudVisible(false);
 const settingsPanel = new SettingsPanel(overlayRoot, session.settings);
 const benchScreen = new BenchmarkScreen(overlayRoot);
-const menu = new MainMenu(overlayRoot, BUILD, session.settings);
+const menuAudio = new MenuAudio();
+const menu = new MainMenu(overlayRoot, BUILD, session.settings, menuAudio);
+
+/*
+ * Un navigateur ne joue rien avant que le joueur ait touche quelque chose. Le
+ * contexte audio est donc prepare au premier geste, quel qu'il soit, et le
+ * volume suit le reglage. L'adresse peut le couper : ?mute sert aux essais.
+ */
+const muted = new URLSearchParams(location.search).has('mute');
+function applyVolume(): void {
+  sound.setVolume(muted ? 0 : session.settings.current.soundVolume);
+}
+for (const event of ['pointerdown', 'keydown'] as const) {
+  window.addEventListener(event, () => {
+    sound.unlock();
+    applyVolume();
+    if (menu.isVisible) menuAudio.startAmbience();
+  }, { passive: true });
+}
+session.settings.subscribe((_values, changed) => {
+  if (changed.includes('soundVolume')) applyVolume();
+});
 const params = new URLSearchParams(location.search);
 /** Derniere carte jouee : un reglage de chargement demande de la reprendre. */
 let currentMap: MapEntry | null = null;
@@ -66,6 +89,8 @@ session.onStats = (stats) => overlay.updateStats(stats);
   textures: () => session.textureBudget(),
   /** Nomme la surface visee a un point de l'ecran, de moins un a un. */
   pick: (x = 0, y = 0) => session.pick(x, y),
+  /** Sons du menu : ce qui est charge, l'etat du contexte, le volume. */
+  sounds: () => menuAudio.describe(),
   place: (x: number, y: number, z: number, yaw = 0, pitch = 0) => session.place(x, y, z, yaw, pitch),
   /**
    * Panneau detaille : les soixante vis de reglage du rendu, etalonnage
@@ -178,6 +203,11 @@ async function mountSource(name: string): Promise<void> {
   );
   sourceSummary = `${vfs.mounted.length} archives · ${shaders.count} shaders · ${fileCount} files`;
   menu.setNotes(sourceSummary);
+  // Les sons du menu sont ceux du jeu : ils arrivent avec les archives.
+  void menuAudio.load((path) => vfs.read(path)).then(() => {
+    applyVolume();
+    if (menu.isVisible) menuAudio.startAmbience();
+  });
   showMenu();
 }
 
@@ -263,6 +293,7 @@ async function playMap(entry: MapEntry, silent = false): Promise<void> {
     reloadPending = false;
     if (silent) return;
     menu.hide();
+    menuAudio.stopAmbience();
     mode = 'game';
     overlay.showGame();
     showHud(true);
@@ -290,6 +321,7 @@ function playDemo(): void {
   currentMap = null;
   session.leaveMenuView();
   menu.hide();
+  menuAudio.stopAmbience();
   mode = 'game';
   session.setLevel(buildDemoArena());
   session.setPaused(false);
@@ -355,6 +387,7 @@ function showMenu(): void {
   showHud(false);
   menu.show();
   session.enterMenuView();
+  menuAudio.startAmbience();
 }
 
 benchScreen.onRepeat = () => void startBenchmark();
@@ -396,6 +429,7 @@ async function startBenchmark(): Promise<void> {
 
   mode = 'bench';
   menu.hide();
+  menuAudio.stopAmbience();
   session.leaveMenuView();
   benchScreen.hide();
   overlay.showScene();
