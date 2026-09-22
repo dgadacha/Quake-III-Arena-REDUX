@@ -6,6 +6,10 @@
   <b>Quake III Arena</b>, rebuilt in a browser with a modern lighting and material pipeline.
 </p>
 
+<p align="center">
+  <a href="https://github.com/dgadacha/Quake-III-Arena-REDUX">github.com/dgadacha/Quake-III-Arena-REDUX</a>
+</p>
+
 ![The lava room of q3dm7, lit by its own surface](docs/lava.jpg)
 
 A browser engine that renders **Quake III Arena** with a modern lighting and
@@ -60,6 +64,8 @@ and the validation step decides per surface which one to keep.
 ## Getting started
 
 ```bash
+git clone https://github.com/dgadacha/Quake-III-Arena-REDUX.git
+cd Quake-III-Arena-REDUX
 npm install
 ```
 
