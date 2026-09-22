@@ -43,6 +43,14 @@ import { pickSpawn, type Level } from './level';
 import { MoveConfig, PlayerMove, createMoveState, type MoveState } from './physics';
 
 /**
+ * Duree du rattrapage de la vue apres une marche, en secondes, et hauteur
+ * maximale rattrapee. Ce sont les valeurs du jeu d'origine : deux dixiemes de
+ * seconde, et trente-deux unites, soit deux marches.
+ */
+const STEP_SMOOTH_SECONDS = 0.2;
+const MAX_STEP_SMOOTH = 32;
+
+/**
  * Echelle de rendu de la vue du menu. Le decor y est un fond, pas une partie :
  * il n'a pas besoin de la resolution du jeu, et l'entree en partie la rend.
  */
@@ -161,6 +169,9 @@ export class Session {
   private readonly fogLinear = new THREE.Fog(0x0d1015, 2000, 8000);
   private readonly fogExponential = new THREE.FogExp2(0x0d1015, 0.0004);
   private fogKind: 'off' | 'linear' | 'exponential' = 'off';
+  /** Hauteur de marche restant a rattraper par la vue, et son age. */
+  private stepChange = 0;
+  private stepAge = STEP_SMOOTH_SECONDS;
 
   onStats: ((stats: Stats) => void) | null = null;
 
@@ -503,6 +514,12 @@ export class Session {
     this.resize();
     this.input.releaseLock();
     this.setPaused(true);
+    /*
+     * L'arme tenue en main n'a rien a faire dans un parcours de mesure : la
+     * simulation etant suspendue, elle resterait figee dans un coin de
+     * l'image. Son cout de rendu est negligeable devant celui du decor.
+     */
+    if (this.viewModel) this.viewModel.scene.visible = false;
 
     const run = new BenchmarkRun(path, this.level.name);
     return new Promise((resolve) => {
@@ -583,6 +600,7 @@ export class Session {
     const active = this.bench;
     if (!active) return;
     this.bench = null;
+    if (this.viewModel) this.viewModel.scene.visible = true;
     this.settings.patch({ dynamicResolution: active.restore.dynamicResolution });
     this.setPaused(active.restore.paused);
   }
@@ -869,6 +887,31 @@ export class Session {
       this.ui.update(delta);
     }
 
+    /*
+     * Amorti des marches.
+     *
+     * Le franchissement d'une marche deplace le joueur d'un cran vers le haut
+     * en une seule commande. Prise telle quelle, la vue saute a chaque marche
+     * et un escalier se monte par saccades, ce qu'on lit comme un accrochage.
+     * Le jeu d'origine garde donc la vue en arriere de la montee et la rattrape
+     * en deux dixiemes de seconde : la hauteur restante s'ajoute a la marche
+     * suivante, bornee, de sorte qu'un escalier entier se monte d'un glissement
+     * continu.
+     */
+    const climbed = this.state.stepped;
+    this.state.stepped = 0;
+    if (climbed > 0.1) {
+      const remaining = this.stepAge < STEP_SMOOTH_SECONDS
+        ? this.stepChange * (1 - this.stepAge / STEP_SMOOTH_SECONDS)
+        : 0;
+      this.stepChange = Math.min(MAX_STEP_SMOOTH, remaining + climbed);
+      this.stepAge = 0;
+    }
+    this.stepAge += delta;
+    const stepLag = this.stepAge < STEP_SMOOTH_SECONDS
+      ? this.stepChange * (1 - this.stepAge / STEP_SMOOTH_SECONDS)
+      : 0;
+
     // Balancement de la marche, tres leger, uniquement au sol.
     const horizontal = Math.hypot(this.state.velocity[0], this.state.velocity[1]);
     if (this.state.onGround) this.bobPhase += delta * horizontal * 0.02;
@@ -915,7 +958,7 @@ export class Session {
     this.updateWeaponLighting();
     void this.viewModel?.setWeapon(this.weapons.currentId);
 
-    this.eye.set(x, y, z + this.state.viewHeight + bob + viewEffects.viewOffset);
+    this.eye.set(x, y, z + this.state.viewHeight + bob + viewEffects.viewOffset - stepLag);
 
     // Les effets rendent le tremblement de camera ; il decale le point de vue
     // et le point vise du meme vecteur, de sorte que la visee ne bouge pas.

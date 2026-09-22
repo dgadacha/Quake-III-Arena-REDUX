@@ -60,6 +60,12 @@ export interface MoveState {
   /** Renseigne par le moteur quand la derniere commande a produit un saut. */
   justJumped: boolean;
   landed: number;
+  /**
+   * Hauteur gagnee par les marches franchies pendant la commande, en unites.
+   * Le rendu s'en sert pour amortir la vue : sans cela, chaque marche fait
+   * sauter la camera d'un cran et un escalier se monte par saccades.
+   */
+  stepped: number;
 }
 
 export interface MoveInput {
@@ -90,6 +96,7 @@ export function createMoveState(origin: Vec3): MoveState {
     waterJumpTime: 0,
     justJumped: false,
     landed: 0,
+    stepped: 0,
   };
 }
 
@@ -498,14 +505,12 @@ export class PlayerMove {
    */
   private slideMove(state: MoveState, gravity: boolean): boolean {
     const planes: Vec3[] = [];
-    const primal: Vec3 = [...state.velocity] as Vec3;
     let endVelocity: Vec3 = [...state.velocity] as Vec3;
 
     if (gravity) {
       endVelocity = [state.velocity[0], state.velocity[1], state.velocity[2] - MoveConfig.gravity * this.frametime];
       // La gravite s'applique en deux moitiees, avant et apres le deplacement.
       state.velocity[2] = (state.velocity[2] + endVelocity[2]) * 0.5;
-      primal[2] = endVelocity[2];
       if (state.groundPlane) {
         state.velocity = clipVelocity(state.velocity, state.groundNormal, MoveConfig.overclip);
       }
@@ -515,8 +520,18 @@ export class PlayerMove {
     if (state.groundPlane) planes.push([...state.groundNormal] as Vec3);
     planes.push(normalized(state.velocity));
 
-    let blocked = true;
+    /*
+     * Nombre de rebonds employes. C'est lui qui dit si le deplacement a ete
+     * gene, et non le fait que la derniere tentative ait abouti : un pas qui
+     * touche une marche puis glisse librement le long de sa face a bien ete
+     * gene, et c'est ce qui doit declencher la montee de la marche. En
+     * annoncant « libre » dans ce cas, le franchissement n'etait jamais
+     * tente et le joueur restait plante devant la premiere marche de chaque
+     * escalier, vitesse a zero.
+     */
+    let bumps = 0;
     for (let bump = 0; bump < 4; bump++) {
+      bumps = bump;
       const end: Vec3 = [
         state.origin[0] + state.velocity[0] * timeLeft,
         state.origin[1] + state.velocity[1] * timeLeft,
@@ -530,10 +545,7 @@ export class PlayerMove {
         return true;
       }
       if (trace.fraction > 0) state.origin = [...trace.endPosition] as Vec3;
-      if (trace.fraction === 1) {
-        blocked = false;
-        break;
-      }
+      if (trace.fraction === 1) break;
 
       timeLeft -= timeLeft * trace.fraction;
       if (planes.length >= MoveConfig.maxClipPlanes) {
@@ -590,15 +602,15 @@ export class PlayerMove {
       }
 
       if (resolved) state.velocity = resolved;
-      // Repartir en arriere n'a pas de sens : on s'arrete.
-      if (dot(state.velocity, primal) <= 0) {
-        state.velocity = [0, 0, 0];
-        return true;
-      }
+      /*
+       * Le jeu d'origine n'arrete pas le mouvement quand la vitesse corrigee
+       * s'oppose a celle de depart. Ajouter cette regle revenait a planter le
+       * joueur des qu'un glissement le renvoyait legerement en arriere.
+       */
     }
 
     if (gravity) state.velocity = endVelocity;
-    return blocked;
+    return bumps !== 0;
   }
 
   /** Comme le glissement, mais en essayant de monter la marche rencontree. */
@@ -630,6 +642,9 @@ export class PlayerMove {
     if (trace.fraction < 1) {
       state.velocity = clipVelocity(state.velocity, trace.normal, MoveConfig.overclip);
     }
+    // Hauteur reellement gagnee : le rendu l'amortit sur la vue.
+    const climbed = state.origin[2] - startOrigin[2];
+    if (climbed > 0) state.stepped += climbed;
   }
 }
 

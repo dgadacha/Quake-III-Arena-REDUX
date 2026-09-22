@@ -11,7 +11,31 @@ import {
  * fabrique les siens de la meme facon, si bien qu'un seul moteur suffit.
  */
 
-const EPSILON = 0.03125;
+/*
+ * Marge de degagement des surfaces.
+ *
+ * Un trajet s'arrete cette distance avant le plan touche, ce qui laisse le
+ * joueur juste au-dessus du sol plutot que dessus. C'est la valeur du jeu
+ * d'origine, et elle compte : avec une marge quatre fois plus fine, l'erreur
+ * accumulee par les arrondis finissait par enfoncer la boite du joueur d'un
+ * centieme d'unite dans une marche, et un depart dans la matiere rend le
+ * trajet entierement bloque.
+ */
+
+
+/**
+ * Marge de la coupe dans l'arbre, en unites. Le jeu d'origine en prend une :
+ * un volume que la boite ne fait qu'effleurer tombe sinon du mauvais cote de
+ * la coupe et n'est jamais teste. Elle est reglable le temps de la mesure.
+ */
+const EPSILON = 0.125;
+
+/**
+ * Marge de la coupe dans l'arbre, en unites. Le jeu d'origine en prend une :
+ * un volume que la boite ne fait qu'effleurer tombe sinon du mauvais cote de
+ * la coupe et n'est jamais teste.
+ */
+const NODE_SLOP = 1;
 
 export interface CollisionPlane {
   normal: Vec3;
@@ -350,11 +374,16 @@ export class CollisionWorld {
       Math.abs(work.extents[1] * plane.normal[1]) +
       Math.abs(work.extents[2] * plane.normal[2]);
 
-    if (t1 >= offset && t2 >= offset) {
+    /*
+     * Une unite de marge de part et d'autre du plan, comme dans le jeu : sans
+     * elle, un volume que la boite ne fait qu'effleurer tombe du mauvais cote
+     * de la coupe et n'est jamais teste.
+     */
+    if (t1 >= offset + NODE_SLOP && t2 >= offset + NODE_SLOP) {
       this.traceNode(work, bspNode.children[0], startFrac, endFrac, p1, p2, depth + 1);
       return;
     }
-    if (t1 < -offset && t2 < -offset) {
+    if (t1 < -offset - NODE_SLOP && t2 < -offset - NODE_SLOP) {
       this.traceNode(work, bspNode.children[1], startFrac, endFrac, p1, p2, depth + 1);
       return;
     }
