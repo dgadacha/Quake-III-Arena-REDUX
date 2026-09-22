@@ -308,3 +308,136 @@
   text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
   margin-bottom: 6px;
 }
+
+/*
+ * Journal des eliminations. Une ligne par frag, en haut a gauche, le nom en
+ * clair et le verbe en retrait ; les lignes ou le joueur figure sont plus
+ * lumineuses, de quoi les distinguer d'un coup d'oeil dans une melee.
+ */
+.hud-obituaries {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 34vw;
+}
+
+.hud-obituary {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--ui-text-dim);
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+  transition: opacity 120ms linear;
+}
+
+.hud-obituary b {
+  color: rgba(236, 238, 242, 0.85);
+  font-weight: 600;
+}
+
+.hud-obituary span {
+  color: var(--ui-text-faint);
+}
+
+.hud-obituary--mine b {
+  color: var(--ui-accent);
+}
+
+.hud-obituary--mine span {
+  color: var(--ui-text-dim);
+}
+
+/*
+ * Tableau des scores. Pose au centre, hors du flux : le reticule occupe la
+ * meme zone et ne doit pas se decaler quand le tableau s'ouvre.
+ */
+.hud-scoreboard {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 420px;
+  padding: 18px 22px 14px;
+  background: rgba(8, 8, 10, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  backdrop-filter: blur(6px);
+}
+
+.hud-scoreboard__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 10px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.hud-scoreboard__mode {
+  font-size: 15px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ui-accent);
+}
+
+.hud-scoreboard__limit {
+  font-family: var(--ui-font-data);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--ui-text-faint);
+}
+
+.hud-scoreboard__row {
+  display: grid;
+  grid-template-columns: 24px 1fr 52px 52px;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 15px;
+  color: var(--ui-text-dim);
+}
+
+.hud-scoreboard__row--mine {
+  color: var(--ui-text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.hud-scoreboard__row--winner .hud-scoreboard__name {
+  color: var(--ui-accent);
+}
+
+.hud-scoreboard__rank,
+.hud-scoreboard__deaths {
+  font-family: var(--ui-font-data);
+  font-size: 12px;
+  color: var(--ui-text-faint);
+}
+
+.hud-scoreboard__frags,
+.hud-scoreboard__deaths {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-scoreboard__frags {
+  font-family: var(--ui-font-data);
+  font-size: 17px;
+  color: inherit;
+}
+
+.hud-scoreboard__note {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ui-text-faint);
+  text-align: center;
+}
+
+/* Limite de frags, collee au score. */
+.hud-match__limit {
+  font-family: var(--ui-font-data);
+  font-size: 15px;
+  color: var(--ui-text-faint);
+}

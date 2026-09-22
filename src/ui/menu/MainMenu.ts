@@ -1,6 +1,7 @@
 import '../styles/menu.css';
 import type { ModernRenderSettings, RenderSettingsStore } from '../../renderer/RenderSettings';
 import { SETTING_ROWS, type SettingRow } from './SettingsRows';
+import { DEFAULT_MATCH, MATCH_ROWS, type MatchRow, type MatchRules } from './MatchRows';
 import type { MenuAudio } from './MenuAudio';
 
 /**
@@ -32,6 +33,8 @@ interface MenuPage {
   header?: string;
   /** Page de reglages : ses lignes viennent de la table, pas des entrees. */
   settings?: boolean;
+  /** Page de preparation de partie : mode, adversaires, limites. */
+  match?: boolean;
   entries: MenuEntry[];
 }
 
@@ -51,8 +54,9 @@ const PAGES: MenuPage[] = [
     id: 'single',
     title: 'Single player',
     header: 'card',
+    match: true,
     entries: [
-      { id: 'start', label: 'Start match' },
+      { id: 'start', label: 'Fight' },
       { id: 'back', label: 'Back', minor: true },
     ],
   },
@@ -80,6 +84,10 @@ export class MainMenu {
   private readonly pages = new Map<string, { element: HTMLElement; items: HTMLButtonElement[] }>();
   /** Lignes de reglage, pour les relire quand une valeur change. */
   private readonly rows = new Map<HTMLButtonElement, SettingRow>();
+  /** Lignes de preparation de partie, meme principe. */
+  private readonly matchLines = new Map<HTMLButtonElement, MatchRow>();
+  /** Regles de la prochaine partie, telles que le menu les propose. */
+  readonly rules: MatchRules = { ...DEFAULT_MATCH };
   private page = 'main';
   private index = 0;
   private visible = false;
@@ -91,6 +99,8 @@ export class MainMenu {
   onReload: (() => void) | null = null;
   /** Prevenu quand les reglages ouverts en partie sont refermes. */
   onClose: (() => void) | null = null;
+  /** Prevenu quand les regles de la partie changent. */
+  onRules: ((rules: MatchRules) => void) | null = null;
 
   constructor(
     parent: HTMLElement,
@@ -237,7 +247,7 @@ export class MainMenu {
       card.innerHTML = `
         <div class="menu-card__map">q3dm7</div>
         <div class="menu-card__title">The temple of retribution</div>
-        <div class="menu-card__line">free for all &middot; no bots in this build</div>
+        <div class="menu-card__line">free for all &middot; the arena of 1999, opponents included</div>
       `;
       element.appendChild(card);
     }
@@ -254,6 +264,12 @@ export class MainMenu {
     }
 
     const items: HTMLButtonElement[] = [];
+    if (page.match) {
+      const list = document.createElement('div');
+      list.className = 'menu-settings';
+      element.appendChild(list);
+      for (const row of MATCH_ROWS) items.push(this.buildMatchRow(row, list));
+    }
     if (page.settings) {
       const list = document.createElement('div');
       list.className = 'menu-settings';
@@ -316,8 +332,58 @@ export class MainMenu {
     return line;
   }
 
+  /**
+   * Une ligne de preparation de partie. Meme dessin qu'un reglage : le nom a
+   * gauche, la valeur a droite, et les fleches changent la valeur.
+   */
+  private buildMatchRow(row: MatchRow, host: HTMLElement): HTMLButtonElement {
+    const line = document.createElement('button');
+    line.className = 'menu-item menu-setting';
+    line.dataset.entry = `match:${row.id}`;
+    line.innerHTML = `
+      <span class="menu-setting__label">${row.label}</span>
+      <span class="menu-setting__bar"><span></span></span>
+      <span class="menu-setting__value"></span>
+    `;
+    line.addEventListener('mouseenter', () => {
+      const page = this.pages.get('single');
+      if (!page || this.index === page.items.indexOf(line)) return;
+      this.index = page.items.indexOf(line);
+      this.refresh();
+      this.audio?.play('move');
+    });
+    line.addEventListener('click', (event) => this.adjust(event.shiftKey ? -1 : 1, line));
+    line.addEventListener('wheel', (event) => {
+      event.preventDefault();
+      this.adjust(event.deltaY > 0 ? -1 : 1, line);
+    }, { passive: false });
+    host.appendChild(line);
+    this.matchLines.set(line, row);
+    return line;
+  }
+
+  /** Reporte les regles courantes dans les lignes de la page de partie. */
+  private readMatch(): void {
+    for (const [line, row] of this.matchLines) {
+      const value = row.read(this.rules);
+      (line.querySelector('.menu-setting__value') as HTMLElement).textContent = value.text;
+      const bar = line.querySelector('.menu-setting__bar') as HTMLElement;
+      const fill = bar.firstElementChild as HTMLElement;
+      bar.classList.toggle('menu-setting__bar--visible', value.fill !== undefined);
+      fill.style.width = `${Math.round((value.fill ?? 0) * 100)}%`;
+    }
+  }
+
   /** Change la valeur d'une ligne de reglage et la reaffiche. */
   private adjust(direction: number, line: HTMLButtonElement): void {
+    const match = this.matchLines.get(line);
+    if (match) {
+      match.step(direction, this.rules);
+      this.readMatch();
+      this.audio?.play('move');
+      this.onRules?.(this.rules);
+      return;
+    }
     const row = this.rows.get(line);
     if (!row || !this.store) return;
     row.step(direction, this.store.current, this.store);
@@ -354,6 +420,7 @@ export class MainMenu {
     }
     this.page = id;
     if (id === 'settings') this.readSettings();
+    if (id === 'single') this.readMatch();
     this.index = target.items.findIndex((item) => !item.disabled);
     if (this.index < 0) this.index = 0;
     this.refresh();
@@ -406,7 +473,7 @@ export class MainMenu {
       else this.showPage('main');
       return;
     }
-    if (entry.startsWith('set:')) {
+    if (entry.startsWith('set:') || entry.startsWith('match:')) {
       this.adjust(1, item);
       return;
     }

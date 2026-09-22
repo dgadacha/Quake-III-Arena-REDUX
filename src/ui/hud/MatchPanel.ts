@@ -13,6 +13,8 @@ export class MatchPanel implements UIComponent {
   private readonly scoreRow: HTMLElement;
   private lastSecond = -1;
   private lastScore = -1;
+  private lastLimit = -1;
+  private readonly limit: HTMLElement;
 
   constructor(
     private readonly state: UIState,
@@ -23,13 +25,14 @@ export class MatchPanel implements UIComponent {
     this.element.innerHTML = `
       <div class="hud-match__score">
         <span class="hud-match__label">score</span>
-        <b>0</b>
+        <b>0</b><span class="hud-match__limit"></span>
       </div>
       <div class="hud-match__time">00:00</div>
     `;
     this.time = this.element.querySelector('.hud-match__time') as HTMLElement;
     this.scoreRow = this.element.querySelector('.hud-match__score') as HTMLElement;
     this.score = this.scoreRow.querySelector('b') as HTMLElement;
+    this.limit = this.scoreRow.querySelector('.hud-match__limit') as HTMLElement;
   }
 
   update(): void {
@@ -48,6 +51,11 @@ export class MatchPanel implements UIComponent {
     if (match.score !== this.lastScore) {
       this.lastScore = match.score;
       this.score.textContent = String(match.score);
+    }
+    if (match.fragLimit !== this.lastLimit) {
+      this.lastLimit = match.fragLimit;
+      // La limite se lit a cote du score : c'est ce qui dit ou l'on en est.
+      this.limit.textContent = match.fragLimit > 0 ? ` / ${match.fragLimit}` : '';
     }
   }
 }

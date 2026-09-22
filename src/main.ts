@@ -24,7 +24,7 @@ const session = new Session(canvas);
 const overlay = new Overlay(overlayRoot);
 // Couche d'interface : elle lit l'etat du jeu, elle ne le pilote pas.
 const ui = new UIManager(overlayRoot);
-createHud(ui);
+const scoreboard = createHud(ui);
 session.attachUI(ui);
 ui.setHudVisible(false);
 const settingsPanel = new SettingsPanel(overlayRoot, session.settings);
@@ -130,6 +130,20 @@ session.onStats = (stats) => overlay.updateStats(stats);
    * plus dans le menu.
    */
   tuning: () => settingsPanel.toggle(),
+  /** Regles de la partie, reprises aussitot : sert a essayer une limite. */
+  match: (rules: Partial<{ bots: number; skill: 1 | 2 | 3 | 4 | 5; fragLimit: number; timeLimit: number }>) => {
+    session.setRules(rules);
+    session.openMatch();
+    return { ...session.arena.rules };
+  },
+  /** Classement de la partie en cours. */
+  scores: () =>
+    session.arena.standings.map((fighter) => ({
+      nom: fighter.name,
+      frags: fighter.score,
+      morts: fighter.deaths,
+      vivant: fighter.player.alive,
+    })),
   /** Image du rendu seul, ecrite dans docs/ par le serveur. */
   capture: async (name: string, width = 1440) => {
     const frame = readViewport(session.renderer.webgl, () => session.draw());
@@ -374,8 +388,21 @@ function showHud(visible: boolean): void {
 }
 
 menu.onSource = (name) => void mountSource(name);
+/*
+ * Fin de partie : le tableau des scores reste a l'ecran, et le joueur doit
+ * savoir comment en relancer une. Sans cette ligne, l'arene continue de
+ * tourner sans qu'il se passe rien.
+ */
+ui.events.on('matchEnd', () => {
+  if (mode === 'game') overlay.notify('Match over — press M for the menu', 8000);
+});
+
 menu.onSelect = (page, entry) => {
-  if (page === 'single' && entry === 'start') void playFocusMap();
+  if (page === 'single' && entry === 'start') {
+    // Les regles choisies dans le menu valent pour la partie qui commence.
+    session.setRules(menu.rules);
+    void playFocusMap();
+  }
   else if (entry === 'benchmark') void startBenchmark();
   else if (entry === 'arena') playDemo();
 };
@@ -486,6 +513,10 @@ function backToMenu(): void {
   showMenu();
 }
 
+window.addEventListener('keyup', (event) => {
+  if (event.code === 'Tab') scoreboard.setOpen(false);
+});
+
 window.addEventListener('keydown', (event) => {
   // Outils de jugement des materiaux.
   if (event.code === 'F6') {
@@ -518,6 +549,12 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.code === 'KeyM' && mode !== 'menu') {
     backToMenu();
+    return;
+  }
+  if (event.code === 'Tab' && mode === 'game') {
+    // Tenue, elle montre les scores ; le navigateur, lui, changerait de champ.
+    event.preventDefault();
+    scoreboard.setOpen(true);
     return;
   }
   if (event.code === 'KeyR' && mode === 'game') session.respawn();

@@ -35,8 +35,10 @@ It **is** an engine: `.pk3` archives read over HTTP range requests, BSP v46
 geometry, lightmaps, the light grid, `.shader` scripts, MD3 models, Q3 player
 movement, and a rendering chain rebuilt for 2026 hardware.
 
-It is **not** a game: there are no bots, no network play, no game modes. You
-walk around, you shoot, you look at the walls. That is the subject.
+It **plays**: a Free For All match against seven bots, with the frag and time
+limits, the weapons and items of the map, and opponents that navigate it with
+the map's own navigation data. There is no network play and no other game
+mode.
 
 It does **not** contain game data. Maps, textures, models and sounds are read
 from your installation at runtime; the derived HD materials are written to a
@@ -101,7 +103,15 @@ room in code, with no dependency on anything id shipped.
 *The menu is the original composition, rendered over the arena itself: almost
 black at rest, with the lava and a few torches doing the lighting.*
 
-**Single player** loads q3dm7 and drops you in it.
+**Single player** sets up a match and drops you in q3dm7. The mode is the one
+the game calls **Free For All**: you against seven bots, first to twenty frags
+or ten minutes, whichever comes first. The setup page takes the number of
+opponents, their skill on the game's five levels — `I can win` to `nightmare`,
+with `hurt me plenty` in the middle — and both limits.
+
+Death costs no time: you are back in the arena a second later, at the spawn
+point furthest from everyone else, which is how the game picks it. Hold **Tab**
+for the scoreboard, and it stays up when the match ends.
 
 ![The upper hall of q3dm7, seen in game](docs/arena.jpg)
 
@@ -138,6 +148,32 @@ everything, which is what the automated checks use.
 The sixty-odd art direction knobs — contrast, temperature, lightmap floor, weapon
 bob amplitude — are calibration tools, not player settings. They live in a panel
 the console opens with `__q3.tuning()`.
+
+---
+
+## The bots
+
+**They walk on the map's own plan.** Next to each `.bsp`, the game's compiler
+wrote an `.aas`: the level cut into areas where a player fits standing, and,
+between those areas, every way to get across — walk, jump, drop off a ledge,
+take a teleporter, ride a jump pad — each with the cost the compiler measured.
+q3dm7 declares 3 599 areas and 5 308 of those crossings. Reading that file is
+why a bot takes the jump the level was built around instead of walking into the
+wall below it: the route is the game's, not ours. The only thing added is the
+shortest path, computed once per goal and shared by everyone chasing it.
+
+**They move like you do.** A bot produces nothing but commands — forward,
+right, jump, view angles — and they go through the same 125 Hz movement code as
+the player. So a bot slides along corridors, climbs steps, gets thrown by a
+rocket and picks up speed off a jump pad exactly as you do.
+
+**What they decide.** Head for what is worth taking, weighing the value of an
+item against the cost of the path; engage what they see; hold the distance
+their weapon likes, which is why a bot with a shotgun closes in and one with a
+railgun backs away; strafe during the exchange; and shoot with a reaction time
+and an aim error. Difficulty is those two numbers and a few habits, not
+accuracy taken away afterwards — the bots of the game have a whole subsystem of
+fuzzy logic and long term goals, and that is not what is rebuilt here.
 
 ---
 
@@ -260,6 +296,7 @@ your own.
 | Jump, crouch | space, Ctrl |
 | Fire | left click |
 | Weapons | 1 to 9, mouse wheel |
+| Scoreboard | Tab, held |
 | Settings | G |
 | Menu | M |
 | Respawn | R |
@@ -283,6 +320,8 @@ The console exposes a handle, `__q3`:
 | `__q3.tuning()` | the detailed rendering panel |
 | `__q3.weapon()` | measures the held weapon's silhouette on screen |
 | `__q3.sounds()` | which samples are decoded, the audio context state, the volume |
+| `__q3.match({ bots, skill, fragLimit, timeLimit })` | restarts the match with other rules |
+| `__q3.scores()` | the standings, frags and deaths |
 | `__q3.capture(name)` | writes the rendered image to `docs/<name>.jpg` |
 | `__q3.captureUI(name)` | same image with the interface on top, menu and reports included |
 
@@ -315,9 +354,11 @@ Two harnesses run beside the game, with the dev server up:
 ```
 src/
   audio/        sound playback, decoding, master volume
-  formats/      pk3, bsp, md3, shader scripts, binary reading
+  formats/      pk3, bsp, md3, aas, shader scripts, binary reading
   bsp/          geometry, lightmaps, light grid, visibility, curved patches
   game/         session, player movement, collision, weapons, entities
+                match/      fighters, damage, Free For All rules, player models
+                bots/       navigation over the map's areas, behaviour
                 benchmark/  camera path and measurement
   renderer/     pipeline, settings, lighting, materials, grading, post
   ui/           menu, HUD, settings, benchmark screens

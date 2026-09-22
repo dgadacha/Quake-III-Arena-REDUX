@@ -2,6 +2,8 @@ import type { UIComponent, UIManager } from '../core/UIManager';
 import { AmmoPanel } from './AmmoPanel';
 import { Crosshair } from './Crosshair';
 import { MatchPanel } from './MatchPanel';
+import { Obituaries } from './Obituaries';
+import { Scoreboard } from './Scoreboard';
 import { StatusPanel } from './StatusPanel';
 import { WeaponBar } from './WeaponBar';
 
@@ -28,13 +30,24 @@ class SpeedReadout implements UIComponent {
   }
 }
 
-export function createHud(manager: UIManager): void {
+export function createHud(manager: UIManager): Scoreboard {
   const { state, settings, events } = manager;
 
   manager.mount(new StatusPanel(state, settings), 'bottom-left');
   manager.mount(new AmmoPanel(state, settings), 'bottom-right');
   manager.mount(new MatchPanel(state, settings), 'top-right');
+  manager.mount(new Obituaries(settings, events), 'top-left');
   manager.mount(new Crosshair(settings, events), 'center');
   manager.mount(new WeaponBar(state, settings, events), 'bottom-center');
   manager.mount(new SpeedReadout(manager), 'bottom-center');
+
+  /*
+   * Le tableau des scores est rendu au jeu : il s'ouvre sur une touche tenue
+   * et reste affiche a la fin de la partie.
+   */
+  const scoreboard = new Scoreboard(state);
+  manager.mount(scoreboard, 'center');
+  events.on('matchEnd', () => scoreboard.setFinal(true));
+  events.on('matchStart', () => scoreboard.setFinal(false));
+  return scoreboard;
 }
