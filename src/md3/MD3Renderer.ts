@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Md3Model, Md3Surface } from '../formats/md3';
+import type { ShaderLibrary } from '../formats/shader';
 import type { TextureLibrary } from '../renderer/materials/TextureLibrary';
 import { interpolateTag } from './MD3Tags';
 
@@ -36,8 +37,14 @@ export class Md3Mesh {
     this.setFrames(0, 0, 0);
   }
 
-  /** Charge les images de surface declarees par le modele. */
-  async loadTextures(textures: TextureLibrary): Promise<void> {
+  /**
+   * Charge les images de surface declarees par le modele.
+   *
+   * La decoupe vient du script du jeu, jamais du canal alpha de l'image. Le
+   * BFG le montre : sa peau se pose sur un reflet par son alpha, et la
+   * decouper perce l'arme.
+   */
+  async loadTextures(textures: TextureLibrary, shaders: ShaderLibrary | null = null): Promise<void> {
     for (const view of this.views) {
       const name = view.surface.shaders[0];
       if (!name) continue;
@@ -48,7 +55,8 @@ export class Md3Mesh {
       view.material.roughnessMap = loaded.roughnessMap;
       if (loaded.normalMap) view.material.normalScale = new THREE.Vector2(0.7, 0.7);
       view.material.color.setHex(0xffffff);
-      if (loaded.hasAlpha) view.material.alphaTest = 0.5;
+      const script = shaders?.get(name.replace(/\.(tga|jpg|jpeg|png)$/i, '')) ?? null;
+      view.material.alphaTest = script?.alphaTest ? 0.5 : 0;
       view.material.needsUpdate = true;
     }
   }

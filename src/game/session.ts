@@ -318,7 +318,11 @@ export class Session {
       });
     }
 
-    this.viewModel = new ViewModel(level.vfs ?? null, level.textures ?? null);
+    this.viewModel = new ViewModel(
+      level.vfs ?? null,
+      level.textures ?? null,
+      level.shaders ?? null,
+    );
     this.viewModel.applySettings(weaponSettings(this.settings.current));
     this.viewModel.setViewport(window.innerWidth, window.innerHeight);
     this.pipeline.setOverlay(this.viewModel.scene, this.viewModel.camera, this.settings.current);

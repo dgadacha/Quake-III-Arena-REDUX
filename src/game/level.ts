@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Vec3 } from '../formats/bsp';
 import type { BspMap } from '../formats/bsp';
 import type { VirtualFileSystem } from '../formats/pk3';
+import type { ShaderLibrary } from '../formats/shader';
 import type { TextureLibrary } from '../renderer/materials/TextureLibrary';
 import type { CollisionWorld } from './collision';
 import type { LightGrid } from '../bsp/LightGrid';
@@ -21,9 +22,11 @@ export interface Level {
   root: THREE.Group;
   /** Donnees de la carte, absentes pour une arene fabriquee par le code. */
   map?: BspMap;
-  /** De quoi charger les modeles de la carte : archives et images. */
+  /** De quoi charger les modeles de la carte : archives, images et scripts. */
   vfs?: VirtualFileSystem;
   textures?: TextureLibrary;
+  /** Scripts de la carte : ils disent comment dessiner chaque peau. */
+  shaders?: ShaderLibrary;
   collision: CollisionWorld;
   spawns: SpawnPoint[];
   /**

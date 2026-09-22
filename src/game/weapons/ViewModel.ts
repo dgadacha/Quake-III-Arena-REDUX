@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Md3Model } from '../../formats/md3';
+import type { ShaderLibrary } from '../../formats/shader';
 import type { VirtualFileSystem } from '../../formats/pk3';
 import { Md3Mesh } from '../../md3/MD3Renderer';
 import type { TextureLibrary } from '../../renderer/materials/TextureLibrary';
@@ -146,6 +147,8 @@ export class ViewModel {
   constructor(
     private readonly vfs: VirtualFileSystem | null,
     private readonly textures: TextureLibrary | null,
+    /** Scripts du jeu : ils disent si une peau se decoupe, ou non. */
+    private readonly shaders: ShaderLibrary | null = null,
   ) {
     this.scene.name = 'viewmodel';
 
@@ -560,7 +563,7 @@ export class ViewModel {
     try {
       const model = new Md3Model(data, path);
       const mesh = new Md3Mesh(model);
-      await mesh.loadTextures(this.textures);
+      await mesh.loadTextures(this.textures, this.shaders);
       mesh.setFrames(0, 0, 0);
 
       // Les modeles du jeu ne sont pas normalises : on les ramene a une unite
@@ -585,15 +588,33 @@ export class ViewModel {
   }
 }
 
+/** Repere neutre, pour un modele encore attache a rien. */
+const IDENTITY = new THREE.Matrix4();
+
 /**
- * Echantillon de sommets d'un modele, exprimes dans le repere de son groupe.
+ * Echantillon de sommets d'un modele, exprimes dans le repere qui l'accueille.
  * Quelques centaines de points suffisent a cerner une silhouette : le modele
  * en compte des dizaines de milliers, et la mesure tourne trente fois a chaque
  * changement de reglage.
  */
 function samplePoints(model: THREE.Object3D, target = 700): Float32Array {
   model.updateWorldMatrix(true, true);
-  const inverse = new THREE.Matrix4().copy(model.matrixWorld).invert();
+  /*
+   * Les points sont exprimes dans le repere qui accueille le modele, pas dans
+   * le sien : le porte-arme les y attend, et la mise a l'echelle portee par le
+   * modele lui-meme en fait donc partie.
+   *
+   * La nuance decide de la taille a l'ecran. Les modeles du jeu ne sont pas
+   * normalises : un lance-roquettes fait plusieurs dizaines d'unites de long,
+   * et il est ramene a une unite par l'echelle de son propre groupe. Mesurer
+   * dans son repere annule cette reduction, la silhouette parait donc des
+   * dizaines de fois trop grande, et l'ajustement compense en rendant l'arme
+   * minuscule. Les modeles de remplacement, eux, arrivent dans un groupe neutre
+   * et n'ont jamais montre le probleme.
+   */
+  const inverse = new THREE.Matrix4()
+    .copy(model.parent ? model.parent.matrixWorld : IDENTITY)
+    .invert();
 
   let total = 0;
   model.traverse((object) => {
@@ -612,8 +633,6 @@ function samplePoints(model: THREE.Object3D, target = 700): Float32Array {
     if (!mesh.isMesh) return;
     const attribute = mesh.geometry.getAttribute('position');
     if (!attribute) return;
-    // Les points reviennent dans le repere du groupe : le porte-arme les y
-    // attend, quelle que soit la hierarchie interne du fichier.
     const toGroup = new THREE.Matrix4().multiplyMatrices(inverse, mesh.matrixWorld);
     for (let index = 0; index < attribute.count; index += stride) {
       point.fromBufferAttribute(attribute as THREE.BufferAttribute, index);

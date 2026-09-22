@@ -175,6 +175,7 @@ export async function loadBspLevel(
     map,
     vfs,
     textures,
+    shaders,
     lights,
     root,
     collision,
