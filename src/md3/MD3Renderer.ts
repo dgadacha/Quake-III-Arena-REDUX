@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Md3Model, Md3Surface } from '../formats/md3';
 import type { ShaderLibrary } from '../formats/shader';
+import { hdMaterials } from '../renderer/materials/HDMaterialLoader';
 import type { TextureLibrary } from '../renderer/materials/TextureLibrary';
 import { interpolateTag } from './MD3Tags';
 
@@ -40,6 +41,11 @@ export class Md3Mesh {
   /**
    * Charge les images de surface declarees par le modele.
    *
+   * La version refaite passe d'abord : un modele est regarde de pres, son
+   * arme plus que tout le reste, et une peau de deux cent cinquante-six
+   * pixels s'y voit aussitot. A defaut, l'image d'origine, et le rendu reste
+   * celui de 1999 sur cette surface.
+   *
    * La decoupe vient du script du jeu, jamais du canal alpha de l'image. Le
    * BFG le montre : sa peau se pose sur un reflet par son alpha, et la
    * decouper perce l'arme.
@@ -55,9 +61,37 @@ export class Md3Mesh {
      */
     skin: Map<string, string> | null = null,
   ): Promise<void> {
+    // Le manifeste peut n'avoir pas encore ete lu : un modele arrive parfois
+    // avant la premiere surface de la carte.
+    await hdMaterials.open();
     for (const view of this.views) {
       const name = skin?.get(view.surface.name) ?? view.surface.shaders[0];
       if (!name) continue;
+
+      const hd = await hdMaterials.load(name);
+      if (hd) {
+        view.material.map = hd.map;
+        view.material.normalMap = hd.normalMap;
+        /*
+         * Une seule texture porte l'occlusion, la rugosite et le metal : Three
+         * lit un canal par propriete, les trois creneaux pointent donc sur
+         * elle.
+         */
+        view.material.roughnessMap = hd.surfaceMap;
+        view.material.metalnessMap = hd.surfaceMap;
+        view.material.aoMap = hd.surfaceMap;
+        view.material.metalness = hd.metalness;
+        view.material.roughness = hd.roughnessMultiplier;
+        if (hd.normalMap) {
+          view.material.normalScale = new THREE.Vector2(hd.normalStrength, hd.normalStrength);
+        }
+        view.material.color.setHex(0xffffff);
+        const hdScript = shaders?.get(name.replace(/\.(tga|jpg|jpeg|png)$/i, '')) ?? null;
+        view.material.alphaTest = hdScript?.alphaTest ? 0.5 : 0;
+        view.material.needsUpdate = true;
+        continue;
+      }
+
       const loaded = await textures.load(name);
       if (!loaded) continue;
       view.material.map = loaded.map;

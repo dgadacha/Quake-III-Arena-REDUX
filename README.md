@@ -282,6 +282,13 @@ The chain writes `public/generated/materials/manifest.json`. The engine reads it
 and uses an HD material only for the textures listed there, so a map can be
 converted surface by surface without ever breaking the rendering.
 
+It covers models too, not just map surfaces: the eleven characters and the nine
+weapons went through it, which means the skin in front of your eyes and the
+bodies you shoot at are rebuilt at 1024 with their normal and ORM maps instead
+of the 256 they shipped with. Four of the forty skins were refused by the
+learned upscaler and re-run in Lanczos, and one — a 64 pixel rocket launcher
+detail — keeps its original.
+
 ![The same pillar up close, original texture on the left, rebuilt on the right](docs/compare-pillar.jpg)
 
 *Up close is where the original runs out of pixels, and where the relief, the
@@ -295,8 +302,8 @@ Taken on q3dm7, on an Apple M3 Pro, in the built-in browser.
 
 | | |
 | --- | --- |
-| Surfaces covered | 111 of 111 used by the map |
-| Video memory | 425 MB, of which 401 MB compressed over 328 textures |
+| Surfaces covered | 111 of 111 used by the map, plus 40 model skins |
+| Video memory | 469 MB, of which 452 MB compressed over 402 textures |
 | Before packing and compression | 1 390 MB for 44 materials |
 | BC7 against PNG, read back from the GPU | 55.5 dB, worst pixel 9 values out of 255 |
 | Benchmark, preset high, 1440 × 810 | 119 fps on average, 67 at the 1 % low, 50 at the 0.1 % |
