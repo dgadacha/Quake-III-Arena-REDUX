@@ -1,10 +1,18 @@
-# Quake Redux
+<p align="center">
+  <img src="public/logo.png" alt="Quake Redux" width="560" />
+</p>
+
+<p align="center">
+  <b>Quake III Arena</b>, rebuilt in a browser with a modern lighting and material pipeline.
+</p>
+
+![The lava room of q3dm7, lit by its own surface](docs/lava.jpg)
 
 A browser engine that renders **Quake III Arena** with a modern lighting and
 material pipeline, written from scratch in TypeScript on top of Three.js.
 
 It reads your own installation of the game: the `.pk3` archives stay on your
-machine, nothing from id Software is redistributed here. The demo focuses on a
+machine, and no game file is redistributed here. The demo focuses on a
 single arena, **q3dm7, The Temple of Retribution**, and tries to take it as far
 as it goes: high definition materials derived from the original textures,
 dynamic lights and shadows on top of the map's baked lighting, reflection
@@ -28,7 +36,8 @@ walk around, you shoot, you look at the walls. That is the subject.
 
 It does **not** contain game data. Maps, textures, models and sounds are read
 from your installation at runtime; the derived HD materials are written to a
-folder that git ignores. Clone this repository and you get code, nothing else.
+folder that git ignores. Clone it and you get the code and the images on
+this page, nothing else.
 
 ---
 
@@ -81,7 +90,14 @@ room in code, with no dependency on anything id shipped.
 
 ## The demo
 
+![The main menu, with q3dm7 rendered behind it](docs/menu.jpg)
+
+*The menu is the original composition, rendered over the arena itself: almost
+black at rest, with the lava and a few torches doing the lighting.*
+
 **Single player** loads q3dm7 and drops you in it.
+
+![The upper hall of q3dm7, seen in game](docs/arena.jpg)
 
 **Benchmark** is a real one. A camera path is built from the map's own spawn
 points: the most spread out ones are picked, linked into a loop, and every leg
@@ -92,6 +108,8 @@ for the run — otherwise the result measures the resolution, not the settings.
 The report gives the average, the 1 % and 0.1 % lows, the frame rate section by
 section, the frame time curve, and the settings used. Frames where the browser
 suspended rendering are discarded and counted separately.
+
+![A benchmark report](docs/benchmark.jpg)
 
 **Settings** keeps twelve choices, the ones that change what you see, what you
 hear, or what the machine has to swallow: preset, render scale, dynamic
@@ -118,6 +136,12 @@ the console opens with `__q3.tuning()`.
 ---
 
 ## How the rendering works
+
+![The courtyard of q3dm7](docs/courtyard.jpg)
+
+*The lightmaps carry the indirect light the original compiler computed; the
+light grid gives it a direction, which is what makes the relief readable at
+all.*
 
 **Geometry and visibility.** BSP faces are grouped per shader into as few meshes
 as possible, and each mesh keeps the ranges of its faces so the map's own
@@ -161,6 +185,10 @@ on it.
 
 ## The HD texture pipeline
 
+![The same arch with the original textures on the left and the rebuilt ones on the right](docs/compare-arch.jpg)
+
+*Same view, same lighting, same settings. Only the material source changes.*
+
 The textures are not repainted, and no external asset is introduced. Each one is
 read from your archives and taken through the same offline chain:
 
@@ -192,6 +220,11 @@ The chain writes `public/generated/materials/manifest.json`. The engine reads it
 and uses an HD material only for the textures listed there, so a map can be
 converted surface by surface without ever breaking the rendering.
 
+![The same pillar up close, original texture on the left, rebuilt on the right](docs/compare-pillar.jpg)
+
+*Up close is where the original runs out of pixels, and where the relief, the
+roughness and the metal mask start to carry the surface instead.*
+
 ---
 
 ## Measurements
@@ -204,7 +237,7 @@ Taken on q3dm7, on an Apple M3 Pro, in the built-in browser.
 | Video memory | 425 MB, of which 401 MB compressed over 328 textures |
 | Before packing and compression | 1 390 MB for 44 materials |
 | BC7 against PNG, read back from the GPU | 55.5 dB, worst pixel 9 values out of 255 |
-| Benchmark, preset high, 1024 × 768 | 112 frames per second on average |
+| Benchmark, preset high, 1440 × 810 | 119 fps on average, 67 at the 1 % low, 50 at the 0.1 % |
 | Ambient occlusion at reduced resolution, sRGB merged into the grading pass | 55.7 → 78.2 fps at 2560 × 1440, same view |
 
 None of these numbers means the same thing on another machine, at another
@@ -244,6 +277,14 @@ The console exposes a handle, `__q3`:
 | `__q3.tuning()` | the detailed rendering panel |
 | `__q3.weapon()` | measures the held weapon's silhouette on screen |
 | `__q3.sounds()` | which samples are decoded, the audio context state, the volume |
+| `__q3.capture(name)` | writes the rendered image to `docs/<name>.jpg` |
+| `__q3.captureUI(name)` | same image with the interface on top, menu and reports included |
+
+The two capture calls are how the images on this page were made. A WebGL canvas
+does not keep its drawing buffer, so the pixels are read in the same breath as
+the frame is drawn; the interface is not in the canvas at all, so it is redrawn
+into the image through an SVG. The file is written by the dev server, which is
+the only thing here allowed to touch the disk.
 
 **F6** cycles the material comparison: Quake Redux, original textures, or a split
 image with the original on the left. **F7** cycles the final image and nine debug
@@ -284,6 +325,7 @@ tools/
 public/
   data/         your archives, or links to them, never in git
   generated/    HD materials produced by the chain, never in git
+docs/           the images on this page
 ```
 
 ---
@@ -309,7 +351,9 @@ staircase.
 
 ## Data and credits
 
-**Quake III Arena** is the work of id Software, released in 1999. The maps,
+**Quake III Arena** is the work of id Software, released in 1999. The
+screenshots on this page show their art, rendered from a private copy of the
+game. The maps,
 textures, models, sounds and shader scripts belong to them, are read from your
 own installation, and never leave your machine. The four menu samples are
 theirs too: the engine reads them from your archives at startup and holds them

@@ -12,6 +12,7 @@ import { SettingsPanel } from './ui/SettingsPanel';
 import { BenchmarkScreen } from './ui/BenchmarkScreen';
 import { UIManager } from './ui/core/UIManager';
 import { createHud } from './ui/hud/Hud';
+import { drawInterface, readViewport, writeShot } from './renderer/debug/Screenshots';
 
 /** Version affichee au bas du menu. */
 const BUILD = '0.1.0';
@@ -89,15 +90,10 @@ session.onStats = (stats) => overlay.updateStats(stats);
   textures: () => session.textureBudget(),
   /** Nomme la surface visee a un point de l'ecran, de moins un a un. */
   pick: (x = 0, y = 0) => session.pick(x, y),
-  /** Sons du menu : ce qui est charge, l'etat du contexte, le volume. */
+  /** Sons : ce qui est charge, l'etat du contexte, le volume. */
   sounds: () => menuAudio.describe(),
+  /** Pose la vue a un endroit precis, en radians. */
   place: (x: number, y: number, z: number, yaw = 0, pitch = 0) => session.place(x, y, z, yaw, pitch),
-  /**
-   * Panneau detaille : les soixante vis de reglage du rendu, etalonnage
-   * compris. Il sert a mettre l'image au point, pas a jouer, et n'est donc
-   * plus dans le menu.
-   */
-  tuning: () => settingsPanel.toggle(),
   /** Essaie un point de vue pour le fond du menu, en degres. */
   menuView: (x: number, y: number, z: number, yaw = 0, pitch = 0) => {
     session.leaveMenuView();
@@ -127,6 +123,25 @@ session.onStats = (stats) => overlay.updateStats(stats);
       entry.compressed.baseColor,
     );
     return { name: chosen, lisible: hdMaterials.compressionAvailable, ...report };
+  },
+  /**
+   * Panneau detaille : les soixante vis de reglage du rendu, etalonnage
+   * compris. Il sert a mettre l'image au point, pas a jouer, et n'est donc
+   * plus dans le menu.
+   */
+  tuning: () => settingsPanel.toggle(),
+  /** Image du rendu seul, ecrite dans docs/ par le serveur. */
+  capture: async (name: string, width = 1440) => {
+    const frame = readViewport(session.renderer.webgl, () => session.draw());
+    if (!frame) return 'canevas 2d indisponible';
+    return writeShot(name, frame, width);
+  },
+  /** Meme image, interface comprise : menu, releve du banc, compteurs. */
+  captureUI: async (name: string, width = 1440) => {
+    const frame = readViewport(session.renderer.webgl, () => session.draw());
+    if (!frame) return 'canevas 2d indisponible';
+    await drawInterface(frame, overlayRoot);
+    return writeShot(name, frame, width);
   },
 };
 
