@@ -59,23 +59,32 @@ export class ItemManager {
   }
 
   /**
-   * Fait revenir les objets dont le delai est ecoule, puis ramasse ceux que le
-   * joueur touche. Rend la liste de ce qui vient d'etre pris.
+   * Fait revenir les objets dont le delai est ecoule. A appeler une fois par
+   * image, et une seule : l'arene compte plusieurs combattants, et faire
+   * avancer les delais une fois par combattant ferait revenir les objets huit
+   * fois plus vite.
    */
-  update(delta: number, origin: Vec3, player: PlayerState): PickupResult[] {
+  tick(delta: number): void {
+    for (const item of this.items) {
+      if (item.available) continue;
+      item.timer -= delta;
+      if (item.timer <= 0) {
+        item.available = true;
+        this.onAvailabilityChange?.(item.key, true);
+      }
+    }
+  }
+
+  /**
+   * Ramasse les objets qu'un combattant touche, humain ou bot. Rend la liste
+   * de ce qui vient d'etre pris.
+   */
+  gather(origin: Vec3, player: PlayerState): PickupResult[] {
     const taken: PickupResult[] = [];
     this.point.set(origin[0], origin[1], origin[2] + 24);
 
     for (const item of this.items) {
-      if (!item.available) {
-        item.timer -= delta;
-        if (item.timer <= 0) {
-          item.available = true;
-          this.onAvailabilityChange?.(item.key, true);
-        }
-        continue;
-      }
-
+      if (!item.available) continue;
       if (this.point.distanceToSquared(item.position) > PICKUP_RADIUS * PICKUP_RADIUS) continue;
       const result = this.collect(item, player);
       if (!result) continue;
@@ -87,6 +96,20 @@ export class ItemManager {
     }
 
     return taken;
+  }
+
+  /**
+   * Objets disponibles, pour qui cherche ou aller. Les bots s'en servent comme
+   * de buts : une armure vaut le detour, une boite de balles beaucoup moins.
+   */
+  get goals(): { position: THREE.Vector3; kind: ItemDefinition['kind']; weapon?: string }[] {
+    return this.items
+      .filter((item) => item.available)
+      .map((item) => ({
+        position: item.position,
+        kind: item.definition.kind,
+        weapon: item.definition.weapon,
+      }));
   }
 
   /** Applique l'effet d'un objet, ou rien si le joueur n'en a pas besoin. */

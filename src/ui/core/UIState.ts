@@ -16,6 +16,20 @@ export interface MatchState {
   score: number;
   /** Nom de la carte en cours, tel qu'il est connu du moteur. */
   map: string;
+  /** Mode de jeu, tel que le jeu le nomme. */
+  mode: string;
+  /** Frags a atteindre, zero quand la partie n'a pas de limite. */
+  fragLimit: number;
+  /** Nombre de combattants en piste, humain compris. */
+  players: number;
+}
+
+/** Une ligne du tableau des scores. */
+export interface Standing {
+  name: string;
+  score: number;
+  deaths: number;
+  human: boolean;
 }
 
 export interface UIStateValues {
@@ -24,6 +38,8 @@ export interface UIStateValues {
   lowAmmo: boolean;
   owned: WeaponId[];
   match: MatchState;
+  /** Classement, du meilleur au dernier. */
+  standings: Standing[];
   /** Vitesse horizontale : le chiffre que regardent les joueurs d'arene. */
   speed: number;
 }
@@ -36,7 +52,8 @@ export class UIState {
     healthLevel: 'healthy',
     lowAmmo: false,
     owned: ['gauntlet', 'machinegun'],
-    match: { time: 0, countdown: false, score: 0, map: '' },
+    match: { time: 0, countdown: false, score: 0, map: '', mode: 'FREE FOR ALL', fragLimit: 0, players: 1 },
+    standings: [],
     speed: 0,
   };
 
@@ -56,6 +73,10 @@ export class UIState {
 
   setMatch(match: Partial<MatchState>): void {
     Object.assign(this.values.match, match);
+  }
+
+  setStandings(standings: Standing[]): void {
+    this.values.standings = standings;
   }
 
   setSpeed(speed: number): void {

@@ -44,9 +44,19 @@ export class Md3Mesh {
    * BFG le montre : sa peau se pose sur un reflet par son alpha, et la
    * decouper perce l'arme.
    */
-  async loadTextures(textures: TextureLibrary, shaders: ShaderLibrary | null = null): Promise<void> {
+  async loadTextures(
+    textures: TextureLibrary,
+    shaders: ShaderLibrary | null = null,
+    /**
+     * Correspondance surface vers image, lue dans un .skin. Les modeles de
+     * personnages ne declarent pas leurs images dans le fichier lui-meme :
+     * c'est la peau qui les donne, et c'est ainsi qu'un meme corps se decline
+     * en plusieurs tenues.
+     */
+    skin: Map<string, string> | null = null,
+  ): Promise<void> {
     for (const view of this.views) {
-      const name = view.surface.shaders[0];
+      const name = skin?.get(view.surface.name) ?? view.surface.shaders[0];
       if (!name) continue;
       const loaded = await textures.load(name);
       if (!loaded) continue;

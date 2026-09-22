@@ -11,8 +11,9 @@ import { WEAPONS, WEAPON_ORDER, type WeaponDef, type WeaponId } from './WeaponDe
  * coups, dispersion, portee, vitesse de projectile. Ce qui est ajoute, c'est ce
  * qu'on voit : depart de coup, faisceau, trainee, impact, trace.
  *
- * Les degats sont declares mais ne sont appliques a personne : il n'y a encore
- * ni adversaires ni points de vie.
+ * Un exemplaire par combattant, humain comme bot : ils partagent les effets et
+ * les faisceaux, qui sont ceux du monde. Ce systeme ne connait ni sante ni
+ * score ; quand un coup atteint quelqu'un, il le signale et l'arene tranche.
  */
 
 const MASK_SHOT = 1 | 0x2000000;
@@ -38,6 +39,20 @@ export class WeaponSystem {
    * ricochet sur de la pierre.
    */
   onImpact: ((weapon: WeaponId, point: [number, number, number], surfaceFlags: number) => void) | null = null;
+  /**
+   * Prevenu quand un coup instantane atteint un combattant. L'arene applique
+   * les degats : l'arme sait ce qu'elle fait, pas a qui.
+   */
+  onDamage:
+    | ((
+        target: number,
+        weapon: WeaponDef,
+        point: [number, number, number],
+        direction: [number, number, number],
+      ) => void)
+    | null = null;
+  /** Combattant qui tient l'arme. L'arene s'en sert pour attribuer les tirs. */
+  owner = -1;
 
   private readonly right = new THREE.Vector3();
   private readonly up = new THREE.Vector3();
@@ -49,8 +64,13 @@ export class WeaponSystem {
   constructor(
     private readonly effects: Effects,
     private readonly beams: BeamSystem,
+    /**
+     * Projectiles en vol pour ce porteur. Le joueur en a besoin de beaucoup,
+     * un bot de peu : chaque place reservee est un objet de scene en plus.
+     */
+    projectileCapacity = 48,
   ) {
-    this.projectiles = new ProjectileSystem(effects);
+    this.projectiles = new ProjectileSystem(effects, projectileCapacity);
   }
 
   attach(parent: THREE.Object3D): void {
@@ -159,7 +179,7 @@ export class WeaponSystem {
         this.fireBeam(definition, direction);
         break;
       case 'projectile':
-        this.projectiles.spawn(definition.id, this.muzzlePoint.clone(), direction.clone());
+        this.projectiles.spawn(definition.id, this.muzzlePoint.clone(), direction.clone(), this.owner);
         break;
     }
   }
@@ -203,6 +223,7 @@ export class WeaponSystem {
 
       this.hitPoint.set(hit.endPosition[0], hit.endPosition[1], hit.endPosition[2]);
       this.hitNormal.set(hit.normal[0], hit.normal[1], hit.normal[2]);
+      const struck = hit.entity ?? -1;
 
       if (definition.id === 'railgun') {
         // Trait fin qui s'efface vite, plus une gerbe a l'arrivee.
@@ -214,6 +235,16 @@ export class WeaponSystem {
         });
       }
 
+      if (struck >= 0) {
+        // Sur un corps, pas de trace d'impact : l'arene s'occupe du reste.
+        this.onDamage?.(
+          struck,
+          definition,
+          [this.hitPoint.x, this.hitPoint.y, this.hitPoint.z],
+          [this.aim.x, this.aim.y, this.aim.z],
+        );
+        continue;
+      }
       this.impact(definition, this.hitPoint, this.hitNormal, hit.surfaceFlags);
     }
   }
@@ -248,6 +279,11 @@ export class WeaponSystem {
     });
 
     if (hit.fraction < 1) {
+      const struck = hit.entity ?? -1;
+      if (struck >= 0) {
+        this.onDamage?.(struck, definition, [target.x, target.y, target.z], [direction.x, direction.y, direction.z]);
+        return;
+      }
       this.hitNormal.set(hit.normal[0], hit.normal[1], hit.normal[2]);
       this.impact(definition, target, this.hitNormal, hit.surfaceFlags);
     }

@@ -34,7 +34,7 @@ import { ShellCasingPool, ViewModelFlash } from './ViewModelFX';
  * image.
  */
 
-const MODEL_DIRECTORIES: Record<WeaponId, string> = {
+export const MODEL_DIRECTORIES: Record<WeaponId, string> = {
   gauntlet: 'gauntlet',
   machinegun: 'machinegun',
   shotgun: 'shotgun',

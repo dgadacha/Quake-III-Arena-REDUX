@@ -21,6 +21,10 @@ export type TraceFunction = (start: Vec3, end: Vec3, mins: Vec3, maxs: Vec3, mas
 interface Projectile {
   active: boolean;
   weapon: WeaponId;
+  /** Combattant qui a tire : l'arene lui attribue les degats. */
+  owner: number;
+  /** Combattant touche de plein fouet, ou moins un. */
+  direct: number;
   position: THREE.Vector3;
   velocity: THREE.Vector3;
   gravity: number;
@@ -47,6 +51,14 @@ export class ProjectileSystem {
   private readonly root = new THREE.Group();
   private readonly nextPosition = new THREE.Vector3();
   private trace: TraceFunction | null = null;
+  /**
+   * Prevenu a chaque explosion, avec l'auteur du tir et le combattant touche
+   * de plein fouet s'il y en a un. C'est l'arene qui en tire les degats : le
+   * systeme de projectiles ne connait ni sante ni score.
+   */
+  onDetonate:
+    | ((weapon: WeaponId, point: [number, number, number], owner: number, direct: number) => void)
+    | null = null;
 
   constructor(private readonly effects: Effects, capacity = 48) {
     this.root.name = 'projectiles';
@@ -67,6 +79,8 @@ export class ProjectileSystem {
       this.projectiles.push({
         active: false,
         weapon: 'rocket',
+        owner: -1,
+        direct: -1,
         position: new THREE.Vector3(),
         velocity: new THREE.Vector3(),
         gravity: 0,
@@ -93,7 +107,7 @@ export class ProjectileSystem {
   }
 
   /** Lance un projectile depuis un point, dans une direction normalisee. */
-  spawn(weapon: WeaponId, origin: THREE.Vector3, direction: THREE.Vector3): void {
+  spawn(weapon: WeaponId, origin: THREE.Vector3, direction: THREE.Vector3, owner = -1): void {
     const definition = WEAPONS[weapon];
     if (!definition.speed) return;
     const projectile = this.projectiles.find((entry) => !entry.active);
@@ -101,6 +115,8 @@ export class ProjectileSystem {
 
     projectile.active = true;
     projectile.weapon = weapon;
+    projectile.owner = owner;
+    projectile.direct = -1;
     projectile.position.copy(origin);
     projectile.velocity.copy(direction).multiplyScalar(definition.speed);
     projectile.gravity = definition.gravity ?? 0;
@@ -149,7 +165,13 @@ export class ProjectileSystem {
       if (hit && hit.fraction < 1) {
         const point = new THREE.Vector3(hit.endPosition[0], hit.endPosition[1], hit.endPosition[2]);
         const normal = new THREE.Vector3(hit.normal[0], hit.normal[1], hit.normal[2]);
+        projectile.direct = hit.entity ?? -1;
 
+        // Une grenade qui rencontre un combattant explose sur lui.
+        if (projectile.direct >= 0) {
+          this.detonate(projectile, point, normal, viewer);
+          continue;
+        }
         if (projectile.weapon === 'grenade' && projectile.age < projectile.fuse) {
           // Une grenade rebondit et garde sa fusee.
           this.bounce(projectile, point, normal);
@@ -196,6 +218,7 @@ export class ProjectileSystem {
   ): void {
     const definition = WEAPONS[projectile.weapon];
     this.onBurst?.(projectile.weapon, [point.x, point.y, point.z]);
+    this.onDetonate?.(projectile.weapon, [point.x, point.y, point.z], projectile.owner, projectile.direct);
     this.effects.explosions.spawn({
       position: point,
       normal: normal && normal.lengthSq() > 0 ? normal : undefined,

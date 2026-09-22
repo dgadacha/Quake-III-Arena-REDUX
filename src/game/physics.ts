@@ -100,6 +100,20 @@ export function createMoveState(origin: Vec3): MoveState {
   };
 }
 
+/**
+ * Remet un etat de deplacement a neuf, sans en fabriquer un autre. Les
+ * combattants sont tenus par l'arene, qui garde une reference sur leur etat :
+ * remplacer l'objet a chaque reapparition la laisserait avec l'ancien.
+ */
+export function resetMoveState(state: MoveState, origin: Vec3): void {
+  const fresh = createMoveState(origin);
+  Object.assign(state, fresh);
+  state.origin = [...origin] as Vec3;
+  state.previousOrigin = [...origin] as Vec3;
+  state.velocity = [0, 0, 0];
+  state.groundNormal = [0, 0, 1];
+}
+
 const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const length = (v: Vec3) => Math.hypot(v[0], v[1], v[2]);
 

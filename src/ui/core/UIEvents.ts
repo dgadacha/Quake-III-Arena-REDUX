@@ -17,6 +17,18 @@ export interface UIEventMap {
   weaponSwitch: { weapon: WeaponId; owned: WeaponId[] };
   weaponEmpty: { weapon: WeaponId };
   hit: { kill: boolean };
+  /**
+   * Elimination, telle que le jeu l'affiche en haut a gauche : qui a tue qui,
+   * et avec quoi. Une mort sans auteur est une chute ou la lave.
+   */
+  obituary: {
+    attacker: string;
+    victim: string;
+    weapon: WeaponId | 'world';
+    attackerIsHuman: boolean;
+    victimIsHuman: boolean;
+    selfInflicted: boolean;
+  };
   matchStart: undefined;
   matchEnd: undefined;
   scoreChange: { score: number };

@@ -83,6 +83,58 @@ const WORLD = {
   respawn: 'sound/items/respawn1.wav',
 } as const;
 
+/**
+ * Douleur et mort. Le jeu enregistre un jeu de cris par personnage ; a defaut
+ * de modele choisi, ce sont ceux de Sarge, presents dans pak0.
+ */
+const PAIN = {
+  25: 'sound/player/sarge/pain25_1.wav',
+  50: 'sound/player/sarge/pain50_1.wav',
+  75: 'sound/player/sarge/pain75_1.wav',
+  100: 'sound/player/sarge/pain100_1.wav',
+} as const;
+
+const DEATH = [
+  'sound/player/sarge/death1.wav',
+  'sound/player/sarge/death2.wav',
+  'sound/player/sarge/death3.wav',
+];
+
+/**
+ * Confirmation de touche : le bip que le jeu renvoie a celui qui tire, dose
+ * selon les degats. C'est ce retour qui rend un duel lisible, plus que le
+ * marqueur a l'ecran.
+ */
+const HIT = {
+  low: 'sound/feedback/hit.wav',
+  25: 'sound/feedback/hit25.wav',
+  50: 'sound/feedback/hit50.wav',
+  75: 'sound/feedback/hit75.wav',
+  100: 'sound/feedback/hit100.wav',
+} as const;
+
+/** Voix de l'annonceur, telle que le jeu la declenche. */
+const ANNOUNCE = {
+  prepare: 'sound/feedback/prepare.wav',
+  three: 'sound/feedback/three.wav',
+  two: 'sound/feedback/two.wav',
+  one: 'sound/feedback/one.wav',
+  fight: 'sound/feedback/fight.wav',
+  oneFrag: 'sound/feedback/1_frag.wav',
+  twoFrags: 'sound/feedback/2_frags.wav',
+  threeFrags: 'sound/feedback/3_frags.wav',
+  oneMinute: 'sound/feedback/1_minute.wav',
+  fiveMinutes: 'sound/feedback/5_minute.wav',
+  excellent: 'sound/feedback/excellent.wav',
+  impressive: 'sound/feedback/impressive.wav',
+  humiliation: 'sound/feedback/humiliation.wav',
+  youWin: 'sound/player/announce/youwin.wav',
+  lostLead: 'sound/feedback/lostlead.wav',
+  takenLead: 'sound/feedback/takenlead.wav',
+} as const;
+
+export type AnnounceName = keyof typeof ANNOUNCE;
+
 /** Distance parcourue entre deux pas, en unites de carte. */
 const STRIDE = 120;
 
@@ -117,6 +169,10 @@ export class GameAudio {
       ...Object.values(WORLD),
       ...Object.values(PICKUP),
       ...Object.values(STEPS).flatMap((list) => list.map((name) => `sound/player/footsteps/${name}.wav`)),
+      ...Object.values(PAIN),
+      ...DEATH,
+      ...Object.values(HIT),
+      ...Object.values(ANNOUNCE),
     ]);
     await Promise.all([...names].map((name) => sound.load(name, read)));
   }
@@ -132,6 +188,41 @@ export class GameAudio {
     // Les quatre coups de mitrailleuse du jeu, plus un demi-ton de variation :
     // une rafale garde du grain au lieu de sonner comme une boucle.
     sound.play(any(names), { detune: (Math.random() - 0.5) * 1.4 });
+  }
+
+  /**
+   * Coup parti ailleurs que dans les mains du joueur. Le meme echantillon que
+   * le sien, mais place dans la scene : c'est ce qui permet d'entendre d'ou
+   * l'on vous tire dessus.
+   */
+  fireAt(weapon: WeaponId, position: [number, number, number]): void {
+    const names = FIRE[weapon];
+    if (!names) return;
+    sound.play(any(names), { position, detune: (Math.random() - 0.5) * 1.4 });
+  }
+
+  /** Cri de douleur, choisi sur la sante restante comme le fait le jeu. */
+  pain(position: [number, number, number], health: number): void {
+    const level = health <= 25 ? 25 : health <= 50 ? 50 : health <= 75 ? 75 : 100;
+    sound.play(PAIN[level], { position, gain: 0.9 });
+  }
+
+  death(position: [number, number, number]): void {
+    sound.play(any(DEATH), { position });
+  }
+
+  /**
+   * Bip de touche renvoye a celui qui tire. Il ne sort pas de la scene : il
+   * appartient a l'interface, comme dans le jeu.
+   */
+  hitConfirm(damage: number): void {
+    const name = damage >= 100 ? HIT[100] : damage >= 75 ? HIT[75] : damage >= 50 ? HIT[50] : damage >= 25 ? HIT[25] : HIT.low;
+    sound.play(name, { gain: 0.8 });
+  }
+
+  /** Voix de l'annonceur. */
+  announce(name: AnnounceName): void {
+    sound.play(ANNOUNCE[name], { gain: 0.9 });
   }
 
   empty(): void {

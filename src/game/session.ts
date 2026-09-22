@@ -10,6 +10,9 @@ import { WeaponSystem } from './weapons/WeaponSystem';
 import { WorldEffects } from './entities/WorldEffects';
 import { ItemManager } from './entities/Items';
 import { PlayerState } from './PlayerState';
+import { readAas } from '../formats/aas';
+import { Navigation } from './bots/Navigation';
+import { Arena, type ArenaRules, type KillNotice } from './match/Arena';
 import type { UIManager } from '../ui/core/UIManager';
 import { ReflectionProbeManager } from '../renderer/lighting/ReflectionProbeManager';
 import { FPSCameraEffects } from '../camera/FPSCameraEffects';
@@ -41,7 +44,8 @@ import { measureTextureBudget } from '../renderer/debug/TextureBudget';
 
 import { Input } from './input';
 import { pickSpawn, type Level } from './level';
-import { MoveConfig, PlayerMove, createMoveState, type MoveState } from './physics';
+import { MoveConfig, PlayerMove, createMoveState,
+  resetMoveState, type MoveState } from './physics';
 
 /**
  * Duree du rattrapage de la vue apres une marche, en secondes, et hauteur
@@ -172,6 +176,13 @@ export class Session {
   private fogKind: 'off' | 'linear' | 'exponential' = 'off';
   /** Sons de la partie : armes, impacts, pas, objets, ambiances de la carte. */
   readonly audio = new GameAudio();
+
+  /**
+   * Partie en cours : les combattants, les regles et l'arbitrage. L'humain y
+   * entre avec l'etat que la session pilote deja ; les bots sont a elle.
+   */
+  readonly arena: Arena;
+  private navigation: Navigation | null = null;
   /** Hauteur de marche restant a rattraper par la vue, et son age. */
   private stepChange = 0;
   private stepAge = STEP_SMOOTH_SECONDS;
@@ -214,8 +225,27 @@ export class Session {
     this.weapons = new WeaponSystem(this.effects, this.effects.beams);
     this.weapons.attach(this.scene);
 
+    this.arena = new Arena(this.effects, this.effects.beams, {
+      fireAt: (weapon, position) => this.audio.fireAt(weapon, position),
+      pain: (position, health) => this.audio.pain(position, health),
+      death: (position) => this.audio.death(position),
+      hitConfirm: (damage) => this.audio.hitConfirm(damage),
+      announce: (name) => this.audio.announce(name),
+    });
+    this.wireArena();
+
     this.input = new Input(canvas);
-    this.input.onFire = (held) => this.weapons.setFiring(held);
+    /*
+     * Tir : il sert aussi a repartir apres la mort, comme dans le jeu. Le
+     * premier clic releve le joueur, il ne part pas en rafale dans le vide.
+     */
+    this.input.onFire = (held) => {
+      if (held && !this.player.alive) {
+        this.arena.respawnHuman();
+        return;
+      }
+      this.weapons.setFiring(held);
+    };
     // Un tir ne part que si l'arme est en main et chargee.
     this.weapons.canFire = (weapon) => this.player.owned.has(weapon) && this.player.canFire(weapon);
     this.weapons.onEmpty = (weapon) => {
@@ -292,6 +322,25 @@ export class Session {
     }
     this.ui?.state.setMatch({ map: level.name, time: 0, countdown: false, score: 0 });
 
+    /*
+     * Navigation des bots : elle vient de la carte. Le compilateur du jeu
+     * ecrit un .aas a cote du .bsp, avec les zones ou l'on tient debout et les
+     * franchissements entre elles. Sans ce fichier, les bots se battent quand
+     * meme mais errent au hasard.
+     */
+    this.navigation = null;
+    const navigationPath = `maps/${level.name}.aas`;
+    if (level.vfs?.has(navigationPath)) {
+      void level.vfs.read(navigationPath).then((data) => {
+        if (!data) return;
+        const aas = readAas(data);
+        if (!aas) return;
+        this.navigation = new Navigation(aas);
+        this.arena.setNavigation(this.navigation);
+      });
+    }
+    this.openMatch();
+
     // Arme tenue en main. Le modele vient des archives de la carte quand il y
     // en a, sinon du modele de remplacement, qui ne demande rien.
     /*
@@ -363,15 +412,115 @@ export class Session {
     }
   }
 
+  /**
+   * Relie l'arene a l'interface : journal des eliminations, score, degats
+   * recus, fin de partie. L'arene ne connait pas le HUD, elle previent.
+   */
+  private wireArena(): void {
+    this.arena.onKill = (notice: KillNotice) => {
+      this.ui?.events.emit('obituary', notice);
+      this.publishStandings();
+      if (notice.victimIsHuman) {
+        this.ui?.events.emit('playerDeath', { reason: 'combat' });
+        this.audio.respawn();
+      }
+    };
+    this.arena.onHumanHit = (kill) => this.ui?.events.emit('hit', { kill });
+    this.arena.onHumanDamage = (amount, from) => {
+      this.cameraEffects.kick(Math.min(0.5, amount * 0.01));
+      this.ui?.events.emit('playerDamage', {
+        amount,
+        fromDirection: { x: -from[0], y: -from[1], z: -from[2] },
+      });
+    };
+    this.arena.onHumanSpawn = () => {
+      const human = this.arena.human;
+      if (human) this.input.setAngles(human.yaw, 0);
+      this.afterSpawn();
+    };
+    this.arena.onScore = (score) => {
+      this.ui?.state.setMatch({ score });
+      this.ui?.events.emit('scoreChange', { score });
+    };
+    this.arena.onEnd = () => {
+      this.publishStandings();
+      this.ui?.events.emit('matchEnd', undefined);
+    };
+  }
+
+  /** Recopie le classement dans l'etat de l'interface. */
+  private publishStandings(): void {
+    this.ui?.state.setStandings(
+      this.arena.standings.map((fighter) => ({
+        name: fighter.name,
+        score: fighter.score,
+        deaths: fighter.deaths,
+        human: fighter.kind === 'human',
+      })),
+    );
+  }
+
+  /**
+   * Ouvre la partie sur la carte chargee. Appelee une premiere fois sans
+   * navigation, puis de nouveau quand le fichier de la carte est lu : les
+   * bots commencent donc a se battre avant de savoir se deplacer, ce qui
+   * evite d'attendre un fichier pour entrer en jeu.
+   */
+  openMatch(): void {
+    if (!this.level) return;
+    this.items?.reset();
+    this.arena.open({
+      level: this.level,
+      items: this.items,
+      navigation: this.navigation,
+      humanState: this.state,
+      humanPlayer: this.player,
+      humanWeapons: this.weapons,
+      parent: this.scene,
+    });
+    this.ui?.state.setMatch({
+      score: 0,
+      countdown: this.arena.rules.timeLimit > 0,
+      fragLimit: this.arena.rules.fragLimit,
+      players: this.arena.fighters.length,
+    });
+    this.publishStandings();
+    this.ui?.events.emit('matchStart', undefined);
+  }
+
+  /**
+   * Regles de la partie. Elles prennent effet a la prochaine ouverture, c'est
+   * a dire au prochain lancement : changer le nombre d'adversaires en pleine
+   * partie n'aurait pas de sens.
+   */
+  setRules(rules: Partial<ArenaRules>): void {
+    Object.assign(this.arena.rules, rules);
+  }
+
+  /**
+   * Fait repartir le joueur. Le point d'apparition est choisi par l'arene, qui
+   * le prend le plus loin possible des vivants : c'est la regle du jeu, et
+   * elle vaut aussi bien pour l'humain que pour les bots.
+   */
   respawn(): void {
     if (!this.level) return;
+    const human = this.arena.human;
+    if (human) {
+      this.arena.spawn(human);
+      return;
+    }
     const spawn = pickSpawn(this.level);
-    this.state = createMoveState([...spawn.origin] as Vec3);
+    resetMoveState(this.state, [...spawn.origin] as Vec3);
     this.input.setAngles(spawn.yaw, 0);
     this.player.reset();
-    this.items?.reset();
+    this.afterSpawn();
+  }
+
+  /** Ce que la session remet a neuf quand le joueur reapparait. */
+  private afterSpawn(): void {
     this.weapons.select('machinegun');
     this.cameraEffects.reset();
+    this.stepChange = 0;
     this.audio.respawn();
     this.ui?.events.emit('playerSpawn', undefined);
   }
@@ -891,9 +1040,11 @@ export class Session {
         this.worldEffects?.burstJumppad(this.scratch);
         this.audio.jumppad([this.state.origin[0], this.state.origin[1], this.state.origin[2]]);
       }
-      // Tombe hors de la carte ou passe dans une zone mortelle : on repart.
+      // Tombe hors de la carte ou passe dans une zone mortelle : c'est une
+      // mort, avec son frag en moins et sa ligne dans le journal.
       const fell = this.level.floor !== undefined && this.state.origin[2] < this.level.floor;
-      if (effect === 'respawn' || fell) this.respawn();
+      if (effect === 'respawn') this.arena.hurt(0, 1000, 'lava');
+      else if (fell) this.arena.hurt(0, 1000, 'void');
     }
 
     // Position de rendu : entre le pas precedent et le pas courant.
@@ -912,7 +1063,8 @@ export class Session {
 
     // Etat du joueur : exces de sante qui redescend, objets ramasses.
     this.player.update(delta);
-    const taken = this.items?.update(delta, this.state.origin, this.player) ?? [];
+    this.items?.tick(delta);
+    const taken = this.items?.gather(this.state.origin, this.player) ?? [];
     for (const pickup of taken) {
       this.audio.pickup(pickup.kind);
       this.ui?.events.emit('pickup', { label: pickup.label, kind: pickup.kind });
@@ -921,10 +1073,15 @@ export class Session {
       }
     }
 
-    // Mort : on repart aussitot, sans ecran intermediaire pour l'instant.
-    if (!this.player.alive) {
-      this.ui?.events.emit('playerDeath', { reason: 'combat' });
-      this.respawn();
+    /*
+     * La partie : les bots pensent et se deplacent, les morts reapparaissent,
+     * les limites sont verifiees. La mort du joueur est arbitree la aussi, et
+     * il repart des que le delai est passe, sans attendre un clic : c'est le
+     * rythme d'une partie du jeu.
+     */
+    if (!this.paused) {
+      this.arena.update(delta, this.eye);
+      if (!this.player.alive) this.arena.respawnHuman();
     }
 
     if (this.ui) {
@@ -932,7 +1089,7 @@ export class Session {
       this.ui.state.setOwned([...this.player.owned]);
       this.ui.state.setSpeed(Math.hypot(this.state.velocity[0], this.state.velocity[1]));
       // Le chronometre est la seule valeur lue a chaque image.
-      this.ui.state.setMatch({ time: this.ui.state.current.match.time + delta });
+      this.ui.state.setMatch({ time: this.arena.remaining });
       this.ui.update(delta);
     }
 

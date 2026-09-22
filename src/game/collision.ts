@@ -72,6 +72,12 @@ export interface TraceResult {
   allSolid: boolean;
   surfaceFlags: number;
   contents: number;
+  /**
+   * Combattant touche, quand la trace en connait : l'arene enveloppe la trace
+   * du decor pour y ajouter les boites des joueurs, comme le fait le jeu.
+   * Absent ou negatif, c'est le decor.
+   */
+  entity?: number;
 }
 
 export const PLAYER_MINS: Vec3 = [-15, -15, -24];
