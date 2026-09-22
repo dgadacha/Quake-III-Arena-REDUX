@@ -230,6 +230,8 @@ export class Session {
       pain: (position, health, voice) => this.audio.pain(position, health, voice),
       death: (position, voice) => this.audio.death(position, voice),
       loadVoice: (voice) => void this.audio.loadVoice(voice),
+      gib: (position) => this.audio.gib(position),
+      gibImpact: (position) => this.audio.gibImpact(position),
       hitConfirm: (damage) => this.audio.hitConfirm(damage),
       announce: (name) => this.audio.announce(name),
     });

@@ -89,6 +89,11 @@ export class Md3Mesh {
     for (const view of this.views) view.mixUniform.value = this.mix;
   }
 
+  /** Materiaux des surfaces, pour qui veut les eclairer autrement. */
+  get materials(): THREE.MeshStandardMaterial[] {
+    return this.views.map((view) => view.material);
+  }
+
   /** Matrice du repere demande, dans l'espace du modele. */
   tagMatrix(name: string, out: THREE.Matrix4): boolean {
     return interpolateTag(this.model, name, this.frameA, this.frameB, this.mix, out);

@@ -11,6 +11,7 @@ import { WEAPONS, type WeaponId } from '../weapons/WeaponDefs';
 import { WeaponSystem } from '../weapons/WeaponSystem';
 import { BotBrain, type BotSkill } from '../bots/BotBrain';
 import type { Navigation } from '../bots/Navigation';
+import { GIB_HEALTH, GibSystem } from './GibSystem';
 import { loadPlayerAssets, PlayerModel } from './PlayerModel';
 
 /**
@@ -86,6 +87,9 @@ export interface ArenaSounds {
   /** La voix est celle du personnage touche : chacun a la sienne. */
   pain(position: Vec3, health: number, voice: string): void;
   death(position: Vec3, voice: string): void;
+  /** Corps qui explose, et morceaux qui retombent. */
+  gib(position: Vec3): void;
+  gibImpact(position: Vec3): void;
   hitConfirm(damage: number): void;
   /** Charge la voix d'un personnage, quand son corps arrive. */
   loadVoice(voice: string): void;
@@ -134,10 +138,19 @@ export class Arena {
   private readonly eye = new THREE.Vector3();
   private readonly aim = new THREE.Vector3();
   private readonly scratch = new THREE.Vector3();
+  /** Echantillon de la grille, reutilise : un par image et par corps. */
+  private readonly gridSample = {
+    ambient: new THREE.Color(),
+    directional: new THREE.Color(),
+    direction: new THREE.Vector3(0, 0, 1),
+  };
   /** Corps des bots, charges depuis les archives, par combattant. */
   private readonly models = new Map<number, PlayerModel>();
   /** Temps depuis la mort, pour laisser l'animation se jouer. */
   private readonly deadFor = new Map<number, number>();
+  /** Combattants dont le corps a explose : il n'y a plus rien a montrer. */
+  private readonly gibbed = new Set<number>();
+  private readonly gibs = new GibSystem();
 
   /** Prevenu de chaque elimination : le journal de l'interface s'en nourrit. */
   onKill: ((notice: KillNotice) => void) | null = null;
@@ -187,6 +200,11 @@ export class Arena {
    */
   get goals(): { position: THREE.Vector3; kind: 'health' | 'armor' | 'ammo' | 'weapon' | 'powerup'; weapon?: string }[] {
     return this.items?.goals ?? [];
+  }
+
+  /** Morceaux de corps en vol, pour la mise au point. */
+  get gibCount(): number {
+    return this.gibs.activeCount;
   }
 
   /** Points d'apparition de la carte : de quoi errer quand rien ne traine. */
@@ -268,6 +286,12 @@ export class Arena {
       this.loadBody(fighter, options.level, options.parent);
     }
 
+    this.gibs.onImpact = (point) => this.sounds.gibImpact(point);
+    this.gibs.attach(options.parent);
+    if (options.level.vfs) {
+      void this.gibs.load(options.level.vfs, options.level.textures ?? null);
+    }
+
     for (const fighter of this.fighters) this.spawn(fighter);
     this.elapsed = 0;
     this.running = true;
@@ -309,6 +333,8 @@ export class Arena {
     for (const model of this.models.values()) model.dispose();
     this.models.clear();
     this.deadFor.clear();
+    this.gibbed.clear();
+    this.gibs.clear();
     for (const fighter of this.fighters) {
       fighter.weapons.clear();
       fighter.weapons.onDamage = null;
@@ -454,6 +480,12 @@ export class Arena {
 
     const before = target.player.health;
     target.player.damage(damage);
+    /*
+     * Un coup qui depasse largement ce qu'il restait fait exploser le corps :
+     * le jeu compare la sante obtenue a moins quarante. La sante etant bornee
+     * a zero a la mort, on refait le calcul ici.
+     */
+    const gibbed = !target.player.alive && before - damage <= GIB_HEALTH;
     target.lastAttacker = attackerId;
     target.lastAttackerAt = this.elapsed;
 
@@ -478,7 +510,7 @@ export class Arena {
       this.onHumanDamage?.(damage, direction);
     }
 
-    if (!target.player.alive) this.kill(targetId, attackerId, weapon);
+    if (!target.player.alive) this.kill(targetId, attackerId, weapon, gibbed);
   }
 
   /**
@@ -545,18 +577,25 @@ export class Arena {
   hurt(fighterId: number, amount: number, cause: 'lava' | 'fall' | 'void'): void {
     const fighter = this.fighters[fighterId];
     if (!fighter || !fighter.player.alive) return;
+    const before = fighter.player.health;
     fighter.player.damage(amount);
     if (fighter.player.alive) {
       if (cause !== 'fall') this.sounds.pain(this.centerOf(fighter), fighter.player.health, fighter.model);
       return;
     }
     // Mort par le decor : le dernier a avoir touche recolte le frag, comme
-    // dans le jeu, sinon la victime perd un point.
+    // dans le jeu, sinon la victime perd un point. Hors de la carte, il n'y a
+    // rien a montrer ; ailleurs, un coup assez fort laisse une gerbe.
     const recent = this.elapsed - fighter.lastAttackerAt < ASSIST_WINDOW ? fighter.lastAttacker : -1;
-    this.kill(fighterId, recent, 'world');
+    this.kill(fighterId, recent, 'world', cause !== 'void' && before - amount <= GIB_HEALTH);
   }
 
-  private kill(victimId: number, attackerId: number, weapon: WeaponId | 'world'): void {
+  private kill(
+    victimId: number,
+    attackerId: number,
+    weapon: WeaponId | 'world',
+    gibbed = false,
+  ): void {
     const victim = this.fighters[victimId];
     if (!victim) return;
     const attacker = attackerId >= 0 ? this.fighters[attackerId] : null;
@@ -565,7 +604,16 @@ export class Arena {
     victim.deaths++;
     victim.respawnIn = RESPAWN_DELAY;
     victim.weapons.setFiring(false);
-    this.sounds.death(this.centerOf(victim), victim.model);
+
+    if (gibbed && this.gibs.ready) {
+      // Plus de corps, plus d'animation de mort : une gerbe de morceaux.
+      this.gibbed.add(victimId);
+      this.gibs.burst(this.centerOf(victim));
+      this.bleed(this.centerOf(victim), [0, 0, -1]);
+      this.sounds.gib(this.centerOf(victim));
+    } else {
+      this.sounds.death(this.centerOf(victim), victim.model);
+    }
 
     const selfInflicted = !attacker || attacker.id === victim.id;
     if (selfInflicted) {
@@ -631,6 +679,7 @@ export class Arena {
     fighter.weapons.clear();
     fighter.weapons.select('machinegun');
     fighter.brain?.reset();
+    this.gibbed.delete(fighter.id);
     if (fighter.kind === 'human') this.onHumanSpawn?.();
   }
 
@@ -649,7 +698,7 @@ export class Arena {
         // Le corps garde son animation de mort un instant avant de partir.
         const dead = (this.deadFor.get(fighter.id) ?? 0) + delta;
         this.deadFor.set(fighter.id, dead);
-        this.poseBody(fighter, delta, dead < 2.5);
+        this.poseBody(fighter, delta, dead < 2.5 && !this.gibbed.has(fighter.id));
         // L'humain choisit quand repartir ; les bots repartent aussitot.
         if (fighter.respawnIn <= 0 && fighter.kind === 'bot' && !this.finished) this.spawn(fighter);
         continue;
@@ -665,6 +714,19 @@ export class Arena {
       this.poseBody(fighter, delta, true);
       this.checkWorld(fighter);
     }
+
+    /*
+     * Les morceaux de corps retombent et rebondissent. Ils n'ont pas besoin de
+     * la partie : ils continuent de tomber meme apres la fin.
+     */
+    this.gibs.update(delta, (start, end, mins, maxs, mask) =>
+      this.level
+        ? this.level.collision.trace(start, end, mins, maxs, mask)
+        : { fraction: 1, endPosition: [...end] as Vec3, normal: [0, 0, 1], startSolid: false, allSolid: false, surfaceFlags: 0, contents: 0 },
+    );
+    const focus = this.gibs.focus;
+    const grid = this.level?.grid;
+    if (focus && grid) this.gibs.setLight(grid.sample(focus, this.gridSample));
 
     this.checkLimits();
   }
@@ -714,6 +776,9 @@ export class Arena {
       return;
     }
     model.setWeapon(fighter.weapons.currentId);
+    // Lumiere du lieu ou il se trouve : la grille de la carte la donne.
+    const grid = this.level?.grid;
+    if (grid) model.setLight(grid.sample(this.centerOf(fighter), this.gridSample));
     model.update(delta, {
       origin: [...fighter.state.origin] as [number, number, number],
       yaw: fighter.yaw,

@@ -136,6 +136,19 @@ session.onStats = (stats) => overlay.updateStats(stats);
     session.openMatch();
     return { ...session.arena.rules };
   },
+  /**
+   * Fait exploser un combattant sur place, pour regarder la gerbe. Sans
+   * argument, le premier bot vivant.
+   */
+  gib: (id?: number) => {
+    const arena = session.arena;
+    const target = id !== undefined
+      ? arena.fighters[id]
+      : arena.fighters.find((fighter) => fighter.kind === 'bot' && fighter.player.alive);
+    if (!target) return 'aucun combattant';
+    arena.hurt(target.id, 500, 'lava');
+    return { cible: target.name, morceaux: arena.gibCount };
+  },
   /** Classement de la partie en cours. */
   scores: () =>
     session.arena.standings.map((fighter) => ({

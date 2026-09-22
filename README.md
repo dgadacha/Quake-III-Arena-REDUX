@@ -172,6 +172,21 @@ right, jump, view angles — and they go through the same 125 Hz movement code a
 the player. So a bot slides along corridors, climbs steps, gets thrown by a
 rocket and picks up speed off a jump pad exactly as you do.
 
+**They are lit by the room.** A wall carries its light baked into its
+lightmap; a body that moves carries nothing. The game solves this with the
+light grid — one cell every 64 by 64 by 128 units, each holding an ambient
+colour, a dominant colour and the direction it comes from — and that is what
+lights the bodies here, sampled once per frame per body. A fighter standing by
+the fire turns orange, one in the teleporter's glow turns blue, one deep in the
+lower corridors goes nearly black. Measured on q3dm7, in that order: `c3a477`,
+`0e5193`, `090805`.
+
+**They come apart.** When a hit overshoots what was left of someone's health by
+forty points — the game's own threshold — there is no death animation: the body
+bursts into eleven pieces, the ten gib models from the archives, which fall,
+bounce off the geometry with the game's impact sounds and come to rest. Below
+that, they take one of the three death animations instead.
+
 **What they decide.** Head for what is worth taking, weighing the value of an
 item against the cost of the path; engage what they see; hold the distance
 their weapon likes, which is why a bot with a shotgun closes in and one with a

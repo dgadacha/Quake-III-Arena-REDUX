@@ -4,6 +4,7 @@ import type { VirtualFileSystem } from '../../formats/pk3';
 import type { ShaderLibrary } from '../../formats/shader';
 import { Md3Mesh } from '../../md3/MD3Renderer';
 import type { TextureLibrary } from '../../renderer/materials/TextureLibrary';
+import { applyGridLight, createGridLight, setGridLight } from '../../renderer/materials/GridLit';
 import { MODEL_DIRECTORIES } from '../weapons/ViewModel';
 import type { WeaponId } from '../weapons/WeaponDefs';
 
@@ -142,6 +143,8 @@ export class PlayerModel {
   private deathAnimation: BothAnimation | null = null;
   private readonly matrix = new THREE.Matrix4();
   private readonly twist = new THREE.Matrix4();
+  /** Lumiere du lieu, relue a chaque image dans la grille de la carte. */
+  private readonly light = createGridLight();
 
   constructor(
     private readonly assets: PlayerAssets,
@@ -170,6 +173,16 @@ export class PlayerModel {
       void this.torso.loadTextures(this.textures, this.shaders, assets.skins.upper);
       void this.head.loadTextures(this.textures, this.shaders, assets.skins.head);
     }
+
+    // Le corps n'a pas de lightmap : sa lumiere vient de la grille.
+    for (const mesh of [this.legs, this.torso, this.head]) {
+      for (const material of mesh.materials) applyGridLight(material, this.light);
+    }
+  }
+
+  /** Pose la lumiere du lieu, echantillonnee par l'arene. */
+  setLight(sample: { ambient: THREE.Color; directional: THREE.Color; direction: THREE.Vector3 }): void {
+    setGridLight(this.light, sample);
   }
 
   /** Arme visible dans la main : le modele du jeu, accroche au repere. */
@@ -186,6 +199,7 @@ export class PlayerModel {
       const mesh = new Md3Mesh(new Md3Model(data, directory));
       await mesh.loadTextures(this.textures!, this.shaders);
       mesh.setFrames(0, 0, 0);
+      for (const material of mesh.materials) applyGridLight(material, this.light);
       this.weapon = mesh;
       this.weaponAnchor.add(mesh.group);
     });

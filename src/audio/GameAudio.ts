@@ -147,6 +147,12 @@ const ANNOUNCE = {
 
 export type AnnounceName = keyof typeof ANNOUNCE;
 
+/** Corps qui explose : la gerbe, puis les morceaux qui retombent. */
+const GIBS = {
+  splat: 'sound/player/gibsplt1.wav',
+  impacts: ['sound/player/gibimp1.wav', 'sound/player/gibimp2.wav', 'sound/player/gibimp3.wav'],
+} as const;
+
 /** Distance parcourue entre deux pas, en unites de carte. */
 const STRIDE = 120;
 
@@ -188,6 +194,8 @@ export class GameAudio {
       ...Object.values(PICKUP),
       ...Object.values(STEPS).flatMap((list) => list.map((name) => `sound/player/footsteps/${name}.wav`)),
       ...voiceFiles(DEFAULT_VOICE),
+      GIBS.splat,
+      ...GIBS.impacts,
       ...Object.values(HIT),
       ...Object.values(ANNOUNCE),
     ]);
@@ -281,6 +289,15 @@ export class GameAudio {
   burst(weapon: WeaponId, position: [number, number, number]): void {
     const name = BURST[weapon];
     if (name) sound.play(name, { position });
+  }
+
+  /** Corps qui explose, et morceaux qui retombent. */
+  gib(position: [number, number, number]): void {
+    sound.play(GIBS.splat, { position });
+  }
+
+  gibImpact(position: [number, number, number]): void {
+    sound.play(any(GIBS.impacts), { position, gain: 0.6 });
   }
 
   /** Rebond d'une grenade. */
