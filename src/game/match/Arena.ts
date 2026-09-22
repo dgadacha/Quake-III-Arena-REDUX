@@ -83,9 +83,12 @@ export interface KillNotice {
 /** Sons que l'arene declenche. La session branche ceux du jeu. */
 export interface ArenaSounds {
   fireAt(weapon: WeaponId, position: Vec3): void;
-  pain(position: Vec3, health: number): void;
-  death(position: Vec3): void;
+  /** La voix est celle du personnage touche : chacun a la sienne. */
+  pain(position: Vec3, health: number, voice: string): void;
+  death(position: Vec3, voice: string): void;
   hitConfirm(damage: number): void;
+  /** Charge la voix d'un personnage, quand son corps arrive. */
+  loadVoice(voice: string): void;
   announce(name: 'fight' | 'oneFrag' | 'twoFrags' | 'threeFrags' | 'oneMinute' | 'fiveMinutes'
     | 'excellent' | 'impressive' | 'humiliation' | 'youWin' | 'takenLead' | 'lostLead'): void;
 }
@@ -283,6 +286,8 @@ export class Arena {
   private loadBody(fighter: Fighter, level: Level, parent: THREE.Object3D): void {
     const vfs = level.vfs;
     if (!vfs || !fighter.model) return;
+    // Les cris du personnage viennent du meme dossier que ses modeles.
+    this.sounds.loadVoice(fighter.model);
     void loadPlayerAssets(vfs, fighter.model).then((assets) => {
       if (!assets || !this.fighters.includes(fighter)) return;
       const model = new PlayerModel(assets, level.textures ?? null, level.shaders ?? null, vfs);
@@ -461,7 +466,7 @@ export class Arena {
     this.bleed(point, direction);
 
     if (target.player.alive) {
-      this.sounds.pain(this.centerOf(target), target.player.health);
+      this.sounds.pain(this.centerOf(target), target.player.health, target.model);
     }
     if (attacker && attackerId !== targetId) {
       if (attacker.kind === 'human') {
@@ -542,7 +547,7 @@ export class Arena {
     if (!fighter || !fighter.player.alive) return;
     fighter.player.damage(amount);
     if (fighter.player.alive) {
-      if (cause !== 'fall') this.sounds.pain(this.centerOf(fighter), fighter.player.health);
+      if (cause !== 'fall') this.sounds.pain(this.centerOf(fighter), fighter.player.health, fighter.model);
       return;
     }
     // Mort par le decor : le dernier a avoir touche recolte le frag, comme
@@ -560,7 +565,7 @@ export class Arena {
     victim.deaths++;
     victim.respawnIn = RESPAWN_DELAY;
     victim.weapons.setFiring(false);
-    this.sounds.death(this.centerOf(victim));
+    this.sounds.death(this.centerOf(victim), victim.model);
 
     const selfInflicted = !attacker || attacker.id === victim.id;
     if (selfInflicted) {

@@ -84,21 +84,33 @@ const WORLD = {
 } as const;
 
 /**
- * Douleur et mort. Le jeu enregistre un jeu de cris par personnage ; a defaut
- * de modele choisi, ce sont ceux de Sarge, presents dans pak0.
+ * Douleur et mort. Le jeu enregistre un jeu de cris par personnage : chaque
+ * modele a son dossier, avec quatre paliers de douleur et trois cris de mort.
+ * Faire crier sept adversaires avec la meme voix s'entend tout de suite, on
+ * les charge donc par personnage, avec Sarge en repli.
  */
-const PAIN = {
-  25: 'sound/player/sarge/pain25_1.wav',
-  50: 'sound/player/sarge/pain50_1.wav',
-  75: 'sound/player/sarge/pain75_1.wav',
-  100: 'sound/player/sarge/pain100_1.wav',
-} as const;
+const DEFAULT_VOICE = 'sarge';
 
-const DEATH = [
-  'sound/player/sarge/death1.wav',
-  'sound/player/sarge/death2.wav',
-  'sound/player/sarge/death3.wav',
-];
+function painOf(voice: string, level: 25 | 50 | 75 | 100): string {
+  return `sound/player/${voice}/pain${level}_1.wav`;
+}
+
+function deathOf(voice: string, index: number): string {
+  return `sound/player/${voice}/death${index}.wav`;
+}
+
+/** Tous les echantillons de voix d'un personnage. */
+function voiceFiles(voice: string): string[] {
+  return [
+    painOf(voice, 25),
+    painOf(voice, 50),
+    painOf(voice, 75),
+    painOf(voice, 100),
+    deathOf(voice, 1),
+    deathOf(voice, 2),
+    deathOf(voice, 3),
+  ];
+}
 
 /**
  * Confirmation de touche : le bip que le jeu renvoie a celui qui tire, dose
@@ -151,6 +163,9 @@ export class GameAudio {
   private travelled = 0;
   private wasInWater = false;
   private readonly speakers: (() => void)[] = [];
+  private read: ((path: string) => Promise<Uint8Array | null>) | null = null;
+  /** Personnages dont la voix est chargee. */
+  private readonly voices = new Set<string>([DEFAULT_VOICE]);
 
   /**
    * Charge tout ce dont une partie a besoin. Les sons absents des archives
@@ -160,6 +175,9 @@ export class GameAudio {
   async load(read: (path: string) => Promise<Uint8Array | null>): Promise<void> {
     if (this.loaded) return;
     this.loaded = true;
+    // Le lecteur est garde : les voix des adversaires arrivent plus tard, en
+    // meme temps que leurs corps.
+    this.read = read;
     const names = new Set<string>([
       ...Object.values(FIRE).flat(),
       ...Object.values(BURST),
@@ -169,8 +187,7 @@ export class GameAudio {
       ...Object.values(WORLD),
       ...Object.values(PICKUP),
       ...Object.values(STEPS).flatMap((list) => list.map((name) => `sound/player/footsteps/${name}.wav`)),
-      ...Object.values(PAIN),
-      ...DEATH,
+      ...voiceFiles(DEFAULT_VOICE),
       ...Object.values(HIT),
       ...Object.values(ANNOUNCE),
     ]);
@@ -201,14 +218,27 @@ export class GameAudio {
     sound.play(any(names), { position, detune: (Math.random() - 0.5) * 1.4 });
   }
 
-  /** Cri de douleur, choisi sur la sante restante comme le fait le jeu. */
-  pain(position: [number, number, number], health: number): void {
-    const level = health <= 25 ? 25 : health <= 50 ? 50 : health <= 75 ? 75 : 100;
-    sound.play(PAIN[level], { position, gain: 0.9 });
+  /**
+   * Charge la voix d'un personnage. Appelee quand son corps arrive : les cris
+   * viennent du meme dossier que ses modeles.
+   */
+  async loadVoice(voice: string): Promise<void> {
+    if (!voice || this.voices.has(voice) || !this.read) return;
+    this.voices.add(voice);
+    const read = this.read;
+    await Promise.all(voiceFiles(voice).map((name) => sound.load(name, read)));
   }
 
-  death(position: [number, number, number]): void {
-    sound.play(any(DEATH), { position });
+  /** Cri de douleur, choisi sur la sante restante comme le fait le jeu. */
+  pain(position: [number, number, number], health: number, voice = DEFAULT_VOICE): void {
+    const level = health <= 25 ? 25 : health <= 50 ? 50 : health <= 75 ? 75 : 100;
+    const name = this.voices.has(voice) ? voice : DEFAULT_VOICE;
+    sound.play(painOf(name, level), { position, gain: 0.9 });
+  }
+
+  death(position: [number, number, number], voice = DEFAULT_VOICE): void {
+    const name = this.voices.has(voice) ? voice : DEFAULT_VOICE;
+    sound.play(deathOf(name, 1 + Math.floor(Math.random() * 3)), { position });
   }
 
   /**

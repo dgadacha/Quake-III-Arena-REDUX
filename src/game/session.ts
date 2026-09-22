@@ -227,8 +227,9 @@ export class Session {
 
     this.arena = new Arena(this.effects, this.effects.beams, {
       fireAt: (weapon, position) => this.audio.fireAt(weapon, position),
-      pain: (position, health) => this.audio.pain(position, health),
-      death: (position) => this.audio.death(position),
+      pain: (position, health, voice) => this.audio.pain(position, health, voice),
+      death: (position, voice) => this.audio.death(position, voice),
+      loadVoice: (voice) => void this.audio.loadVoice(voice),
       hitConfirm: (damage) => this.audio.hitConfirm(damage),
       announce: (name) => this.audio.announce(name),
     });
