@@ -33,6 +33,7 @@ import {
 } from '../renderer/materials/Q3Material';
 import { gradeFor, NEUTRAL_GRADE, type MapGrade } from '../renderer/grading/MapGrading';
 import { FOCUS_MENU_VIEW } from './focus';
+import { GameAudio } from '../audio/GameAudio';
 import { benchmarkShot, type BenchmarkShot } from '../renderer/debug/Benchmark';
 import { buildCameraPath } from './benchmark/CameraPath';
 import { BenchmarkRun, type BenchmarkReport } from './benchmark/BenchmarkRun';
@@ -169,6 +170,8 @@ export class Session {
   private readonly fogLinear = new THREE.Fog(0x0d1015, 2000, 8000);
   private readonly fogExponential = new THREE.FogExp2(0x0d1015, 0.0004);
   private fogKind: 'off' | 'linear' | 'exponential' = 'off';
+  /** Sons de la partie : armes, impacts, pas, objets, ambiances de la carte. */
+  readonly audio = new GameAudio();
   /** Hauteur de marche restant a rattraper par la vue, et son age. */
   private stepChange = 0;
   private stepAge = STEP_SMOOTH_SECONDS;
@@ -215,15 +218,24 @@ export class Session {
     this.input.onFire = (held) => this.weapons.setFiring(held);
     // Un tir ne part que si l'arme est en main et chargee.
     this.weapons.canFire = (weapon) => this.player.owned.has(weapon) && this.player.canFire(weapon);
-    this.weapons.onEmpty = (weapon) => this.ui?.events.emit('weaponEmpty', { weapon });
-    this.weapons.onSwitch = (weapon) =>
+    this.weapons.onEmpty = (weapon) => {
+      this.ui?.events.emit('weaponEmpty', { weapon });
+      this.audio.empty();
+    };
+    this.weapons.onSwitch = (weapon) => {
       this.ui?.events.emit('weaponSwitch', { weapon, owned: [...this.player.owned] });
+      this.audio.change();
+    };
+    this.weapons.onImpact = (weapon, point, flags) => this.audio.impact(weapon, point, flags);
+    this.weapons.projectiles.onBurst = (weapon, point) => this.audio.burst(weapon, point);
+    this.weapons.projectiles.onBounce = (point) => this.audio.bounce(point);
     // Recul visuel : il depend de l'arme, jamais de sa precision.
     this.weapons.onFired = (definition) => {
       this.cameraEffects.kick(definition.flashSize * 0.06);
       // Depart de coup vu de l'arme : eclat, lampe courte, douille.
       this.viewModel?.fire(definition.color, EJECTS_CASINGS.has(definition.id));
       this.player.consume(definition.id);
+      this.audio.fire(definition.id);
       this.ui?.events.emit('weaponFire', { weapon: definition.id });
     };
     this.input.onSelectWeapon = (index) => this.weapons.selectIndex(index);
@@ -282,6 +294,30 @@ export class Session {
 
     // Arme tenue en main. Le modele vient des archives de la carte quand il y
     // en a, sinon du modele de remplacement, qui ne demande rien.
+    /*
+     * Sons de la partie et ambiances de la carte. Une carte declare des
+     * haut-parleurs : q3dm7 en pose vingt, un par torche, et c'est ce qui
+     * remplit la salle de lave. Les sons sortent des archives du joueur, comme
+     * le reste.
+     */
+    this.audio.silence();
+    const vfs = level.vfs;
+    if (vfs) {
+      const read = (path: string) => vfs.read(path);
+      void this.audio.load(read).then(() => {
+        const speakers = (level.map?.entitiesOfClass('target_speaker') ?? [])
+          .map((entity) => {
+            const parts = (entity.origin ?? '').split(/\s+/).map(Number);
+            return {
+              noise: entity.noise ?? '',
+              origin: [parts[0] || 0, parts[1] || 0, parts[2] || 0] as [number, number, number],
+            };
+          })
+          .filter((speaker) => speaker.noise.length > 0);
+        void this.audio.ambiences(speakers, read);
+      });
+    }
+
     this.viewModel = new ViewModel(level.vfs ?? null, level.textures ?? null);
     this.viewModel.applySettings(weaponSettings(this.settings.current));
     this.viewModel.setViewport(window.innerWidth, window.innerHeight);
@@ -332,6 +368,7 @@ export class Session {
     this.items?.reset();
     this.weapons.select('machinegun');
     this.cameraEffects.reset();
+    this.audio.respawn();
     this.ui?.events.emit('playerSpawn', undefined);
   }
 
@@ -420,6 +457,11 @@ export class Session {
    * meme position, la meme orientation et le meme champ de vision : c'est la
    * seule facon de comparer deux reglages.
    */
+  /** Dessine l'image tout de suite : la capture lit le tampon juste apres. */
+  draw(): void {
+    this.pipeline.render();
+  }
+
   /**
    * Ce que la vue rencontre a un point de l'ecran, en coordonnees de moins un
    * a un. Sert a nommer une surface dont on se demande ce qu'elle est.
@@ -839,9 +881,11 @@ export class Session {
         this.scratch.set(this.state.origin[0], this.state.origin[1], this.state.origin[2] + 24);
         this.worldEffects?.flashTeleport(this.scratch, this.eye);
         this.effects.trails.clear();
+        this.audio.teleport([this.state.origin[0], this.state.origin[1], this.state.origin[2]]);
       } else if (effect === 'push') {
         this.scratch.set(this.state.origin[0], this.state.origin[1], this.state.origin[2]);
         this.worldEffects?.burstJumppad(this.scratch);
+        this.audio.jumppad([this.state.origin[0], this.state.origin[1], this.state.origin[2]]);
       }
       // Tombe hors de la carte ou passe dans une zone mortelle : on repart.
       const fell = this.level.floor !== undefined && this.state.origin[2] < this.level.floor;
@@ -866,6 +910,7 @@ export class Session {
     this.player.update(delta);
     const taken = this.items?.update(delta, this.state.origin, this.player) ?? [];
     for (const pickup of taken) {
+      this.audio.pickup(pickup.kind);
       this.ui?.events.emit('pickup', { label: pickup.label, kind: pickup.kind });
       if (pickup.kind === 'health' || pickup.kind === 'armor') {
         this.ui?.events.emit('playerHeal', { amount: 0 });
@@ -912,8 +957,21 @@ export class Session {
       ? this.stepChange * (1 - this.stepAge / STEP_SMOOTH_SECONDS)
       : 0;
 
-    // Balancement de la marche, tres leger, uniquement au sol.
+    /*
+     * Sons du joueur. Les pas viennent de la distance parcourue et non d'un
+     * minuteur, de sorte qu'ils se resserrent quand il court ; le saut et
+     * l'immersion, eux, sont des changements d'etat que la simulation signale.
+     */
     const horizontal = Math.hypot(this.state.velocity[0], this.state.velocity[1]);
+    if (!this.paused) {
+      if (this.state.justJumped) this.audio.jump();
+      this.audio.water(this.state.waterLevel);
+      if (this.state.onGround) {
+        this.audio.travel(horizontal * delta, this.state.groundSurfaceFlags, this.state.waterLevel);
+      }
+    }
+
+    // Balancement de la marche, tres leger, uniquement au sol.
     if (this.state.onGround) this.bobPhase += delta * horizontal * 0.02;
     const bob = this.state.onGround
       ? Math.sin(this.bobPhase) * Math.min(horizontal / MoveConfig.speed, 1) * 0.8
@@ -934,6 +992,7 @@ export class Session {
       baseFov: 90,
     });
     if (this.state.landed > 0) {
+      this.audio.land(this.state.landed);
       this.cameraEffects.land(this.state.landed);
       // Une reception violente coute de la sante, comme a l'origine.
       const lost = this.player.fallDamage(this.state.landed);
@@ -981,6 +1040,12 @@ export class Session {
       .set(cosPitch * Math.cos(yaw), cosPitch * Math.sin(yaw), -Math.sin(pitch))
       .normalize();
     if (!this.paused) this.weapons.update(delta, this.eye, this.aimDirection);
+    // L'auditeur suit la vue : c'est ce qui place les torches et les
+    // explosions autour du joueur.
+    this.audio.listen(
+      [this.eye.x, this.eye.y, this.eye.z],
+      [this.aimDirection.x, this.aimDirection.y, this.aimDirection.z],
+    );
 
     this.updateFog();
   }

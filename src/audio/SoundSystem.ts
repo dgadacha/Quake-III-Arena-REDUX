@@ -16,7 +16,24 @@ export interface SoundOptions {
   gain?: number;
   /** Variation de hauteur, en demi-tons : evite l'effet mitraillette. */
   detune?: number;
+  /**
+   * Position dans le monde. Absente, le son est joue tel quel : c'est le cas
+   * des sons du joueur lui-meme, son arme et ses pas, qui n'ont pas a venir
+   * d'un cote de la tete.
+   */
+  position?: [number, number, number];
 }
+
+/** Distances de la loi d'atténuation, en unites de carte. */
+const REFERENCE_DISTANCE = 220;
+const MAXIMUM_DISTANCE = 4200;
+
+/**
+ * Sons joues en meme temps au plus. Le jeu d'origine en tenait quatre-vingt-
+ * seize ; une arene sans adversaires n'en demande pas le quart, et la limite
+ * evite qu'une salve de plasma sature la sortie.
+ */
+const MAX_VOICES = 24;
 
 export class SoundSystem {
   private context: AudioContext | null = null;
@@ -31,6 +48,8 @@ export class SoundSystem {
   private readonly buffers = new Map<string, AudioBuffer>();
   private readonly pending = new Map<string, Promise<void>>();
   private volume = 0.6;
+  /** Sons en cours, pour tenir la limite de voix. */
+  private voices = 0;
 
   /**
    * Prepare le contexte au premier geste du joueur. Appelable plusieurs fois :
@@ -119,19 +138,93 @@ export class SoundSystem {
   /** Joue un son deja charge. Sans lui, rien ne se passe et rien n'echoue. */
   play(name: string, options: SoundOptions = {}): void {
     const buffer = this.buffers.get(name);
-    if (!buffer || !this.context || !this.master) return;
+    if (!buffer || !this.context || !this.master || this.voices >= MAX_VOICES) return;
 
     const source = this.context.createBufferSource();
     source.buffer = buffer;
     if (options.detune) source.detune.value = options.detune * 100;
+
+    let node: AudioNode = source;
     if (options.gain !== undefined && options.gain !== 1) {
       const gain = this.context.createGain();
       gain.gain.value = options.gain;
-      source.connect(gain).connect(this.master);
-    } else {
-      source.connect(this.master);
+      node = node.connect(gain);
     }
+    if (options.position) node = node.connect(this.panner(options.position));
+    node.connect(this.master);
+
+    this.voices++;
+    source.onended = () => {
+      this.voices = Math.max(0, this.voices - 1);
+    };
     source.start();
+  }
+
+  /**
+   * Son repete en boucle a un endroit du monde, pour les ambiances que la
+   * carte declare. Rend de quoi l'arreter.
+   */
+  loop(name: string, position: [number, number, number], gain = 1): (() => void) | null {
+    const buffer = this.buffers.get(name);
+    if (!buffer || !this.context || !this.master) return null;
+
+    const source = this.context.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    const level = this.context.createGain();
+    level.gain.value = gain;
+    source.connect(level).connect(this.panner(position)).connect(this.master);
+    source.start();
+    return () => {
+      try {
+        source.stop();
+      } catch {
+        // Deja arretee : il n'y a rien a faire.
+      }
+    };
+  }
+
+  /**
+   * Place l'auditeur. Les navigateurs recents veulent des parametres
+   * automatisables, les plus anciens une methode ; les deux existent encore.
+   */
+  setListener(position: [number, number, number], forward: [number, number, number]): void {
+    const listener = this.context?.listener;
+    if (!listener || !this.context) return;
+    const when = this.context.currentTime;
+    if (listener.positionX) {
+      listener.positionX.setValueAtTime(position[0], when);
+      listener.positionY.setValueAtTime(position[1], when);
+      listener.positionZ.setValueAtTime(position[2], when);
+      listener.forwardX.setValueAtTime(forward[0], when);
+      listener.forwardY.setValueAtTime(forward[1], when);
+      listener.forwardZ.setValueAtTime(forward[2], when);
+      // Les cartes ont l'axe z vers le haut, comme le joueur.
+      listener.upX.setValueAtTime(0, when);
+      listener.upY.setValueAtTime(0, when);
+      listener.upZ.setValueAtTime(1, when);
+      return;
+    }
+    const legacy = listener as unknown as {
+      setPosition(x: number, y: number, z: number): void;
+      setOrientation(x: number, y: number, z: number, ux: number, uy: number, uz: number): void;
+    };
+    legacy.setPosition(position[0], position[1], position[2]);
+    legacy.setOrientation(forward[0], forward[1], forward[2], 0, 0, 1);
+  }
+
+  /** Attenuation par la distance, sans calcul d'oreille : elle coute cher. */
+  private panner(position: [number, number, number]): PannerNode {
+    const panner = this.context!.createPanner();
+    panner.panningModel = 'equalpower';
+    panner.distanceModel = 'inverse';
+    panner.refDistance = REFERENCE_DISTANCE;
+    panner.maxDistance = MAXIMUM_DISTANCE;
+    panner.rolloffFactor = 1;
+    panner.positionX.value = position[0];
+    panner.positionY.value = position[1];
+    panner.positionZ.value = position[2];
+    return panner;
   }
 
   /** Ce qui est charge et pret, pour verifier sans rien jouer. */

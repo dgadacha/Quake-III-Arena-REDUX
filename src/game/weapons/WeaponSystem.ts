@@ -32,6 +32,12 @@ export class WeaponSystem {
   canFire: ((weapon: WeaponId) => boolean) | null = null;
   /** Prevenu quand le tir n'a pas lieu faute de munitions. */
   onEmpty: ((weapon: WeaponId) => void) | null = null;
+  /**
+   * Prevenu quand un tir instantane touche une surface. La matiere touchee
+   * vient avec : le son d'un ricochet sur du metal n'est pas celui d'un
+   * ricochet sur de la pierre.
+   */
+  onImpact: ((weapon: WeaponId, point: [number, number, number], surfaceFlags: number) => void) | null = null;
 
   private readonly right = new THREE.Vector3();
   private readonly up = new THREE.Vector3();
@@ -263,6 +269,7 @@ export class WeaponSystem {
     surfaceFlags = 0,
   ): void {
     if ((surfaceFlags & Surface.NOIMPACT) !== 0) return;
+    this.onImpact?.(definition.id, [point.x, point.y, point.z], surfaceFlags);
 
     const energy = definition.id === 'plasma' || definition.id === 'lightning' || definition.id === 'bfg';
     const metal = (surfaceFlags & Surface.METALSTEPS) !== 0;

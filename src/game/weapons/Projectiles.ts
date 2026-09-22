@@ -38,6 +38,11 @@ const PROJECTILE_HALF_MAX: Vec3 = [2, 2, 2];
 const MASK_SHOT = 1 | 0x2000000;
 
 export class ProjectileSystem {
+  /** Prevenu quand un projectile explose, avec l'arme et l'endroit. */
+  onBurst: ((weapon: WeaponId, point: [number, number, number]) => void) | null = null;
+  /** Prevenu quand une grenade rebondit. */
+  onBounce: ((point: [number, number, number]) => void) | null = null;
+
   private readonly projectiles: Projectile[] = [];
   private readonly root = new THREE.Group();
   private readonly nextPosition = new THREE.Vector3();
@@ -173,6 +178,7 @@ export class ProjectileSystem {
   }
 
   private bounce(projectile: Projectile, point: THREE.Vector3, normal: THREE.Vector3): void {
+    this.onBounce?.([point.x, point.y, point.z]);
     projectile.position.copy(point).addScaledVector(normal, 1);
     projectile.mesh.position.copy(projectile.position);
     // Rebond amorti : la grenade roule au sol au lieu de repartir.
@@ -189,6 +195,7 @@ export class ProjectileSystem {
     viewer: THREE.Vector3,
   ): void {
     const definition = WEAPONS[projectile.weapon];
+    this.onBurst?.(projectile.weapon, [point.x, point.y, point.z]);
     this.effects.explosions.spawn({
       position: point,
       normal: normal && normal.lengthSq() > 0 ? normal : undefined,
