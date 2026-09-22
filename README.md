@@ -153,6 +153,11 @@ the console opens with `__q3.tuning()`.
 
 ## The bots
 
+![A Free For All match in progress, with the scoreboard open](docs/standings.jpg)
+
+*Seven opponents, the frag limit, the clock, and the kill feed. The scoreboard
+is the game's: mode, limit, frags and deaths.*
+
 **They walk on the map's own plan.** Next to each `.bsp`, the game's compiler
 wrote an `.aas`: the level cut into areas where a player fits standing, and,
 between those areas, every way to get across — walk, jump, drop off a ledge,
